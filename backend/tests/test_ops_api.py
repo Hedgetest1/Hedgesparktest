@@ -116,7 +116,11 @@ def test_resolve_alert_requires_auth(client, db):
 # ---------------------------------------------------------------------------
 
 def _seed_completed_export(db: Session) -> int:
-    """Create a merchant + completed data export, return request id."""
+    """Create a merchant + completed data export, return request id.
+
+    Since 2026-05-14 result_summary stores a RECEIPT (counts + delivery
+    metadata), not the raw PII export. See gdpr_processor.
+    _build_export_receipt for the schema."""
     db.add(Merchant(shop_domain=SHOP_A, plan="pro", billing_active=True, install_status="active"))
     db.flush()
 
@@ -124,13 +128,26 @@ def _seed_completed_export(db: Session) -> int:
                  product_url="/products/item", timestamp=now_ms()))
     db.flush()
 
-    export = {"request_id": 1, "shop_domain": SHOP_A, "data": {"orders": [], "events": [{"type": "view"}]}}
+    receipt = {
+        "phase": "delivered",
+        "delivery_status": "sent",
+        "recipient_hash": "abc1234567890def",
+        "request_id": 1,
+        "counts": {
+            "visitor_ids_found": 1,
+            "orders": 0,
+            "events": 1,
+            "visitor_state": 0,
+            "nudge_events": 0,
+        },
+    }
     req = GdprRequest(
         request_type="customers_data_request",
         shop_domain=SHOP_A,
         customer_id="c_test",
+        customer_email="c_test@example.com",
         status="completed",
-        result_summary=json.dumps(export),
+        result_summary=json.dumps(receipt),
     )
     db.add(req)
     db.flush()
@@ -163,15 +180,82 @@ def test_list_exports_filter_by_status(client, db):
 
 
 def test_get_export_detail(client, db):
-    """Operator can retrieve full export payload."""
+    """Operator retrieves the receipt (counts + delivery metadata) for
+    a completed customers_data_request. The raw PII export is delivered
+    via email_orchestrator and not retained at rest (post 2026-05-14)."""
     rid = _seed_completed_export(db)
     db.commit()
     resp = client.get(f"/ops/gdpr/exports/{rid}", headers=_op_headers())
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "completed"
-    assert "export" in data
-    assert data["export"]["shop_domain"] == SHOP_A
+    assert "receipt" in data
+    receipt = data["receipt"]
+    assert receipt["phase"] == "delivered"
+    assert receipt["delivery_status"] == "sent"
+    assert receipt["counts"]["events"] == 1
+    # The receipt MUST NOT carry raw PII fields
+    assert "shop_domain" not in receipt  # customer identity is on the row itself
+    assert "data" not in receipt
+
+
+def test_redeliver_export_resets_to_pending(client, db):
+    """Operator can retry a failed or completed delivery — the request
+    is reset to pending and the next worker cycle rebuilds the export
+    from source tables and re-attempts email delivery."""
+    db.add(Merchant(shop_domain=SHOP_A, plan="pro", billing_active=True, install_status="active"))
+    db.flush()
+    req = GdprRequest(
+        request_type="customers_data_request",
+        shop_domain=SHOP_A,
+        customer_id="c_redeliver",
+        customer_email="c_redeliver@example.com",
+        status="failed",
+        error_detail="prior delivery failed (orchestrator returned False)",
+    )
+    db.add(req)
+    db.flush()
+    rid = req.id
+    db.commit()
+
+    resp = client.post(f"/ops/gdpr/exports/{rid}/redeliver", headers=_op_headers())
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "queued", "id": rid}
+
+    # Reset state on row
+    db.expire_all()
+    refreshed = db.get(GdprRequest, rid)
+    assert refreshed.status == "pending"
+    assert refreshed.processed_at is None
+    assert refreshed.error_detail is None
+    assert refreshed.result_summary is None
+
+
+def test_redeliver_export_requires_auth(client, db):
+    """No operator key → 401."""
+    rid = _seed_completed_export(db)
+    db.commit()
+    resp = client.post(
+        f"/ops/gdpr/exports/{rid}/redeliver",
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 401
+
+
+def test_redeliver_export_rejects_wrong_type(client, db):
+    """Cannot redeliver a customers_redact or shop_redact row."""
+    db.add(Merchant(shop_domain=SHOP_A, plan="pro", billing_active=True, install_status="active"))
+    req = GdprRequest(
+        request_type="customers_redact",
+        shop_domain=SHOP_A, customer_id="cx", status="completed",
+    )
+    db.add(req)
+    db.flush()
+    rid = req.id
+    db.commit()
+    resp = client.post(f"/ops/gdpr/exports/{rid}/redeliver", headers=_op_headers())
+    assert resp.status_code == 400
+    assert "customers_data_request" in resp.json()["detail"]
 
 
 def test_get_export_requires_auth(client, db):

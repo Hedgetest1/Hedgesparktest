@@ -30,6 +30,8 @@ Contract
 """
 from __future__ import annotations
 
+import logging
+import stat
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -39,6 +41,30 @@ _BACKEND_DIR = Path(__file__).resolve().parents[2]
 _ENV_FILE = _BACKEND_DIR / ".env"
 
 _loaded = False
+_log = logging.getLogger("wishspark.env_bootstrap")
+
+
+def _audit_env_file_perms(env_file: Path) -> None:
+    """Layer-2 perm check (static script is layer-1, invariant_monitor is
+    layer-3). Logs CRITICAL on drift but does NOT crash — bricking
+    production on a perm mistake is worse than the perm itself.
+
+    Acceptable modes: 0o600 (owner rw) or 0o400 (owner read-only).
+    Any group/world bit set (mode & 0o077) is a drift.
+    """
+    if not env_file.exists():
+        return
+    try:
+        mode = stat.S_IMODE(env_file.stat().st_mode)
+    except OSError:
+        return
+    if mode & 0o077:
+        _log.critical(
+            "env_bootstrap: %s mode=%s is group/world-readable. "
+            "Live secrets (API keys, encryption keys, OAuth) exposed. "
+            "Run: chmod 600 %s",
+            env_file, oct(mode), env_file,
+        )
 
 
 def load_env() -> None:
@@ -46,6 +72,7 @@ def load_env() -> None:
     global _loaded
     if _loaded:
         return
+    _audit_env_file_perms(_ENV_FILE)
     # override=False: existing environ values (set by PM2, pytest, CI) win.
     load_dotenv(_ENV_FILE, override=False)
     _loaded = True

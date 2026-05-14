@@ -1,5 +1,5 @@
 # WishSpark Auto Context
-Auto-generated: 2026-05-07T20:00:01.250905 UTC
+Auto-generated: 2026-05-14T14:00:01.203996 UTC
 
 ## Project Root
 /opt/wishspark
@@ -27,10 +27,10 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/api/anomaly_fusion.py
 /backend/app/api/anomaly_replay.py
 /backend/app/api/attribution.py
-/backend/app/api/auth.py
 /backend/app/api/auth_posture.py
 /backend/app/api/benchmarks.py
 /backend/app/api/benchmarks_vertical.py
+/backend/app/api/bi_query.py
 /backend/app/api/billing.py
 /backend/app/api/brief.py
 /backend/app/api/cac_ltv.py
@@ -50,7 +50,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/api/daily_narrative.py
 /backend/app/api/dashboard.py
 /backend/app/api/decision_engine.py
-/backend/app/api/events.py
 /backend/app/api/execution_actions.py
 /backend/app/api/feature_flags_admin.py
 /backend/app/api/feature_usage_api.py
@@ -109,6 +108,7 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/api/public_status.py
 /backend/app/api/public_transparency.py
 /backend/app/api/realtime_stream.py
+/backend/app/api/recurring_buyers.py
 /backend/app/api/refund_loss.py
 /backend/app/api/reports.py
 /backend/app/api/resend_webhooks.py
@@ -134,6 +134,7 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/api/slo_api.py
 /backend/app/api/source_quality.py
 /backend/app/api/store_intelligence.py
+/backend/app/api/store_profile.py
 /backend/app/api/storefront_preview.py
 /backend/app/api/survey.py
 /backend/app/api/team.py
@@ -159,7 +160,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/action_learning.py
 /backend/app/services/action_proof.py
 /backend/app/services/activation.py
-/backend/app/services/adaptive_governance.py
 /backend/app/services/ads_connectors.py
 /backend/app/services/agency.py
 /backend/app/services/alerting.py
@@ -174,12 +174,11 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/behavioral_cohorts.py
 /backend/app/services/benchmarks.py
 /backend/app/services/benchmarks_vertical.py
+/backend/app/services/bi_query_builder.py
 /backend/app/services/billing_sync.py
 /backend/app/services/brand_voice.py
 /backend/app/services/breach_notification.py
 /backend/app/services/brief_engine.py
-/backend/app/services/bugfix_pipeline.py
-/backend/app/services/candidate_scoring.py
 /backend/app/services/causal_explainer.py
 /backend/app/services/causal_intervention_engine.py
 /backend/app/services/chat_voice.py
@@ -188,11 +187,12 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/cohort_engine.py
 /backend/app/services/community_marketplace.py
 /backend/app/services/compliance_score.py
+/backend/app/services/contextual_bandit.py
 /backend/app/services/conversion_metrics.py
 /backend/app/services/conversion_service.py
+/backend/app/services/cross_shop_aggregator.py
 /backend/app/services/customer_churn_scorer.py
 /backend/app/services/dashboard_auto_remediation.py
-/backend/app/services/dashboard_drift_scope.py
 /backend/app/services/data_integrity_probe.py
 /backend/app/services/data_retention.py
 /backend/app/services/digest_formatter.py
@@ -205,20 +205,9 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/empirical_calibration.py
 /backend/app/services/event_bus.py
 /backend/app/services/event_emitter.py
-/backend/app/services/evolution_bet_governance.py
-/backend/app/services/evolution_business_outcomes.py
-/backend/app/services/evolution_causal_attribution.py
-/backend/app/services/evolution_converter.py
-/backend/app/services/evolution_decision_engine.py
-/backend/app/services/evolution_gc.py
-/backend/app/services/evolution_outcomes.py
-/backend/app/services/evolution_proposal_outcomes.py
-/backend/app/services/evolution_reinforcement.py
-/backend/app/services/evolution_strategy.py
 /backend/app/services/execution_engine.py
 /backend/app/services/external_lookup_service.py
 /backend/app/services/feedback_intelligence.py
-/backend/app/services/fix_holdout_measurement.py
 /backend/app/services/followup_worker.py
 /backend/app/services/gdpr_processor.py
 /backend/app/services/gdpr_sla.py
@@ -240,7 +229,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/lite_morning_digest.py
 /backend/app/services/llm_benchmark_monitor.py
 /backend/app/services/llm_realmodel_drift.py
-/backend/app/services/loop_health.py
 /backend/app/services/ltv_engine.py
 /backend/app/services/margin_guard.py
 /backend/app/services/market_lookup_engine.py
@@ -253,8 +241,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/merchant_groups.py
 /backend/app/services/merchant_privacy.py
 /backend/app/services/merchant_scoring.py
-/backend/app/services/merge_intelligence.py
-/backend/app/services/meta_reviewer.py
 /backend/app/services/model_config.py
 /backend/app/services/mta_engine.py
 /backend/app/services/multi_currency_rollup.py
@@ -281,18 +267,15 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/outbound_webhooks.py
 /backend/app/services/outcome_evaluator.py
 /backend/app/services/p95_snapshot.py
-/backend/app/services/pipeline_state.py
 /backend/app/services/pnl_engine.py
 /backend/app/services/prediction_log.py
 /backend/app/services/price_intelligence_engine.py
-/backend/app/services/price_radar_service.py
 /backend/app/services/price_sensitivity.py
 /backend/app/services/proactive_chat.py
 /backend/app/services/probabilistic_forecast.py
 /backend/app/services/product_intelligence_engine.py
-/backend/app/services/project_brain.py
-/backend/app/services/promotion_pipeline.py
 /backend/app/services/proof_engine.py
+/backend/app/services/recurring_buyer_analytics.py
 /backend/app/services/refund_ingest.py
 /backend/app/services/refund_loss.py
 /backend/app/services/regulatory_feed_monitor.py
@@ -306,16 +289,13 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/revenue_genome.py
 /backend/app/services/revenue_loss.py
 /backend/app/services/revenue_metrics.py
-/backend/app/services/reviewer_layer.py
 /backend/app/services/rfm.py
 /backend/app/services/risk_forecast.py
 /backend/app/services/roi_report.py
 /backend/app/services/rule_engine.py
 /backend/app/services/rum_monitor.py
 /backend/app/services/scaling_intelligence.py
-/backend/app/services/scoring_calibration.py
 /backend/app/services/security_heartbeat.py
-/backend/app/services/security_preflight_guard.py
 /backend/app/services/segment_compare.py
 /backend/app/services/sentry_alert_rules.py
 /backend/app/services/sentry_api.py
@@ -331,7 +311,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/signal_text.py
 /backend/app/services/signal_webhooks.py
 /backend/app/services/silence_detector.py
-/backend/app/services/simulation_engine.py
 /backend/app/services/sip_engine.py
 /backend/app/services/slack_dispatcher.py
 /backend/app/services/soc2_controls.py
@@ -345,7 +324,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/services/team.py
 /backend/app/services/telegram_agent.py
 /backend/app/services/trust_contract.py
-/backend/app/services/trust_outcome_measurement.py
 /backend/app/services/uninstall_erasure.py
 /backend/app/services/unique_product_engine.py
 /backend/app/services/utm_attribution.py
@@ -365,20 +343,18 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/models/active_model_config.py
 /backend/app/models/active_nudge.py
 /backend/app/models/ad_spend.py
-/backend/app/models/adversarial_review_finding.py
 /backend/app/models/agency.py
 /backend/app/models/analytics_event.py
 /backend/app/models/audit_log.py
-/backend/app/models/autofix_promotion.py
 /backend/app/models/autonomous_action.py
+/backend/app/models/bi_saved_query.py
 /backend/app/models/brain_decision.py
-/backend/app/models/bugfix_candidate.py
 /backend/app/models/cig.py
 /backend/app/models/community_template.py
+/backend/app/models/cross_shop_pattern.py
 /backend/app/models/daily_brief.py
 /backend/app/models/email_event.py
 /backend/app/models/event.py
-/backend/app/models/evolution_proposal.py
 /backend/app/models/execution.py
 /backend/app/models/gdpr_request.py
 /backend/app/models/inbound_email.py
@@ -390,9 +366,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/models/merchant_journey_state.py
 /backend/app/models/merchant_rule.py
 /backend/app/models/merchant_saved_report.py
-/backend/app/models/merge_outcome.py
-/backend/app/models/meta_review.py
-/backend/app/models/model_upgrade.py
 /backend/app/models/night_shift_report.py
 /backend/app/models/nudge_event.py
 /backend/app/models/nudge_impression_daily.py
@@ -400,7 +373,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/models/opportunity_signal.py
 /backend/app/models/ops_alert.py
 /backend/app/models/outbound_webhook.py
-/backend/app/models/patch_fingerprint.py
 /backend/app/models/prediction_log.py
 /backend/app/models/price_intelligence.py
 /backend/app/models/price_watch.py
@@ -408,8 +380,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/models/product_cost.py
 /backend/app/models/product_metrics.py
 /backend/app/models/product_opportunity.py
-/backend/app/models/project_brain_snapshot.py
-/backend/app/models/reviewer_assessment.py
 /backend/app/models/scaling_recommendation.py
 /backend/app/models/sentry_incident.py
 /backend/app/models/share_event.py
@@ -420,7 +390,6 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /backend/app/models/store_metrics.py
 /backend/app/models/support_incident.py
 /backend/app/models/survey_response.py
-/backend/app/models/system_lesson.py
 /backend/app/models/system_snapshot.py
 /backend/app/models/trust_contract.py
 /backend/app/models/unique_product_detection.py
@@ -465,6 +434,7 @@ Auto-generated: 2026-05-07T20:00:01.250905 UTC
 /pricing
 /privacy
 /proof
+/proof/showcase
 /status
 /terms
 /transparency

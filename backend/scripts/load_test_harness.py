@@ -289,7 +289,22 @@ async def run_harness(
             method=method, json_body=json_body,
         )
 
-    async with httpx.AsyncClient(base_url=base_url) as client:
+    # NB: the default httpx Limits cap is max_connections=100 — at
+    # 1000+ concurrent merchants the client-side pool becomes the
+    # bottleneck (PoolTimeout) before the backend ever sees the load.
+    # Size the client pool to the merchant count so we measure the
+    # SERVER's saturation point, not the harness's. 2× headroom because
+    # think-time + retries can briefly hold double the steady-state
+    # connection count.
+    limits = httpx.Limits(
+        max_connections=max(200, 2 * len(shops)),
+        max_keepalive_connections=max(100, len(shops)),
+        keepalive_expiry=30.0,
+    )
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=60.0)
+    async with httpx.AsyncClient(
+        base_url=base_url, limits=limits, timeout=timeout,
+    ) as client:
         tasks = [
             staged(i, s, tokens[s], client)
             for i, s in enumerate(shops)

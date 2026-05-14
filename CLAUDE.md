@@ -798,6 +798,14 @@ operational invariants below are all enforced at runtime.
 - **Telegram webhook:** HMAC signature verification mandatory, fail-closed.
 - **OAuth:** state param mandatory, token encryption at rest via
   `app/core/token_crypto.py` (TIER_2).
+- **Env file perms:** every `.env`/`.env.local` on disk MUST be 0o600 or
+  0o400 (owner-only). 3-layer defense: `scripts/audit_env_file_perms.py`
+  (preflight + commit-msg block) → `app/core/env_bootstrap._audit_env_file_perms`
+  (boot-time CRITICAL log, non-blocking) → `app/services/invariant_monitor._check_env_file_perms`
+  (15-min runtime check, writes `invariant:env_perm_drift` CRITICAL alert
+  + auto-heals on next clean cycle). Born 2026-05-14 after external-CTO
+  audit flagged backend/.env mode 644 (world-readable: Shopify/Telegram/
+  Resend/Anthropic/OpenAI keys + AES encryption keys exposed).
 - **Audit log hash chain** (`app/services/audit.py`): every row carries
   `_chain = {prev, self, digest}` metadata. `verify_audit_log_chain` walks
   the table and detects `digest_mismatch`, `self_hash_mismatch`,

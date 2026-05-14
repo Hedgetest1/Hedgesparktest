@@ -1,5 +1,5 @@
 # WishSpark Server Context
-Auto-generated: 2026-05-07T20:00:01.247664 UTC
+Auto-generated: 2026-05-14T14:00:01.201211 UTC
 
 ## Base Path
 /opt/wishspark
@@ -26,10 +26,10 @@ Process Manager: PM2
 /backend/app/api/anomaly_fusion.py
 /backend/app/api/anomaly_replay.py
 /backend/app/api/attribution.py
-/backend/app/api/auth.py
 /backend/app/api/auth_posture.py
 /backend/app/api/benchmarks.py
 /backend/app/api/benchmarks_vertical.py
+/backend/app/api/bi_query.py
 /backend/app/api/billing.py
 /backend/app/api/brief.py
 /backend/app/api/cac_ltv.py
@@ -49,7 +49,6 @@ Process Manager: PM2
 /backend/app/api/daily_narrative.py
 /backend/app/api/dashboard.py
 /backend/app/api/decision_engine.py
-/backend/app/api/events.py
 /backend/app/api/execution_actions.py
 /backend/app/api/feature_flags_admin.py
 /backend/app/api/feature_usage_api.py
@@ -108,6 +107,7 @@ Process Manager: PM2
 /backend/app/api/public_status.py
 /backend/app/api/public_transparency.py
 /backend/app/api/realtime_stream.py
+/backend/app/api/recurring_buyers.py
 /backend/app/api/refund_loss.py
 /backend/app/api/reports.py
 /backend/app/api/resend_webhooks.py
@@ -133,6 +133,7 @@ Process Manager: PM2
 /backend/app/api/slo_api.py
 /backend/app/api/source_quality.py
 /backend/app/api/store_intelligence.py
+/backend/app/api/store_profile.py
 /backend/app/api/storefront_preview.py
 /backend/app/api/survey.py
 /backend/app/api/team.py
@@ -158,7 +159,6 @@ Process Manager: PM2
 /backend/app/services/action_learning.py
 /backend/app/services/action_proof.py
 /backend/app/services/activation.py
-/backend/app/services/adaptive_governance.py
 /backend/app/services/ads_connectors.py
 /backend/app/services/agency.py
 /backend/app/services/alerting.py
@@ -173,12 +173,11 @@ Process Manager: PM2
 /backend/app/services/behavioral_cohorts.py
 /backend/app/services/benchmarks.py
 /backend/app/services/benchmarks_vertical.py
+/backend/app/services/bi_query_builder.py
 /backend/app/services/billing_sync.py
 /backend/app/services/brand_voice.py
 /backend/app/services/breach_notification.py
 /backend/app/services/brief_engine.py
-/backend/app/services/bugfix_pipeline.py
-/backend/app/services/candidate_scoring.py
 /backend/app/services/causal_explainer.py
 /backend/app/services/causal_intervention_engine.py
 /backend/app/services/chat_voice.py
@@ -187,11 +186,12 @@ Process Manager: PM2
 /backend/app/services/cohort_engine.py
 /backend/app/services/community_marketplace.py
 /backend/app/services/compliance_score.py
+/backend/app/services/contextual_bandit.py
 /backend/app/services/conversion_metrics.py
 /backend/app/services/conversion_service.py
+/backend/app/services/cross_shop_aggregator.py
 /backend/app/services/customer_churn_scorer.py
 /backend/app/services/dashboard_auto_remediation.py
-/backend/app/services/dashboard_drift_scope.py
 /backend/app/services/data_integrity_probe.py
 /backend/app/services/data_retention.py
 /backend/app/services/digest_formatter.py
@@ -204,20 +204,9 @@ Process Manager: PM2
 /backend/app/services/empirical_calibration.py
 /backend/app/services/event_bus.py
 /backend/app/services/event_emitter.py
-/backend/app/services/evolution_bet_governance.py
-/backend/app/services/evolution_business_outcomes.py
-/backend/app/services/evolution_causal_attribution.py
-/backend/app/services/evolution_converter.py
-/backend/app/services/evolution_decision_engine.py
-/backend/app/services/evolution_gc.py
-/backend/app/services/evolution_outcomes.py
-/backend/app/services/evolution_proposal_outcomes.py
-/backend/app/services/evolution_reinforcement.py
-/backend/app/services/evolution_strategy.py
 /backend/app/services/execution_engine.py
 /backend/app/services/external_lookup_service.py
 /backend/app/services/feedback_intelligence.py
-/backend/app/services/fix_holdout_measurement.py
 /backend/app/services/followup_worker.py
 /backend/app/services/gdpr_processor.py
 /backend/app/services/gdpr_sla.py
@@ -239,7 +228,6 @@ Process Manager: PM2
 /backend/app/services/lite_morning_digest.py
 /backend/app/services/llm_benchmark_monitor.py
 /backend/app/services/llm_realmodel_drift.py
-/backend/app/services/loop_health.py
 /backend/app/services/ltv_engine.py
 /backend/app/services/margin_guard.py
 /backend/app/services/market_lookup_engine.py
@@ -252,8 +240,6 @@ Process Manager: PM2
 /backend/app/services/merchant_groups.py
 /backend/app/services/merchant_privacy.py
 /backend/app/services/merchant_scoring.py
-/backend/app/services/merge_intelligence.py
-/backend/app/services/meta_reviewer.py
 /backend/app/services/model_config.py
 /backend/app/services/mta_engine.py
 /backend/app/services/multi_currency_rollup.py
@@ -280,18 +266,15 @@ Process Manager: PM2
 /backend/app/services/outbound_webhooks.py
 /backend/app/services/outcome_evaluator.py
 /backend/app/services/p95_snapshot.py
-/backend/app/services/pipeline_state.py
 /backend/app/services/pnl_engine.py
 /backend/app/services/prediction_log.py
 /backend/app/services/price_intelligence_engine.py
-/backend/app/services/price_radar_service.py
 /backend/app/services/price_sensitivity.py
 /backend/app/services/proactive_chat.py
 /backend/app/services/probabilistic_forecast.py
 /backend/app/services/product_intelligence_engine.py
-/backend/app/services/project_brain.py
-/backend/app/services/promotion_pipeline.py
 /backend/app/services/proof_engine.py
+/backend/app/services/recurring_buyer_analytics.py
 /backend/app/services/refund_ingest.py
 /backend/app/services/refund_loss.py
 /backend/app/services/regulatory_feed_monitor.py
@@ -305,16 +288,13 @@ Process Manager: PM2
 /backend/app/services/revenue_genome.py
 /backend/app/services/revenue_loss.py
 /backend/app/services/revenue_metrics.py
-/backend/app/services/reviewer_layer.py
 /backend/app/services/rfm.py
 /backend/app/services/risk_forecast.py
 /backend/app/services/roi_report.py
 /backend/app/services/rule_engine.py
 /backend/app/services/rum_monitor.py
 /backend/app/services/scaling_intelligence.py
-/backend/app/services/scoring_calibration.py
 /backend/app/services/security_heartbeat.py
-/backend/app/services/security_preflight_guard.py
 /backend/app/services/segment_compare.py
 /backend/app/services/sentry_alert_rules.py
 /backend/app/services/sentry_api.py
@@ -330,7 +310,6 @@ Process Manager: PM2
 /backend/app/services/signal_text.py
 /backend/app/services/signal_webhooks.py
 /backend/app/services/silence_detector.py
-/backend/app/services/simulation_engine.py
 /backend/app/services/sip_engine.py
 /backend/app/services/slack_dispatcher.py
 /backend/app/services/soc2_controls.py
@@ -344,7 +323,6 @@ Process Manager: PM2
 /backend/app/services/team.py
 /backend/app/services/telegram_agent.py
 /backend/app/services/trust_contract.py
-/backend/app/services/trust_outcome_measurement.py
 /backend/app/services/uninstall_erasure.py
 /backend/app/services/unique_product_engine.py
 /backend/app/services/utm_attribution.py
@@ -364,20 +342,18 @@ Process Manager: PM2
 /backend/app/models/active_model_config.py
 /backend/app/models/active_nudge.py
 /backend/app/models/ad_spend.py
-/backend/app/models/adversarial_review_finding.py
 /backend/app/models/agency.py
 /backend/app/models/analytics_event.py
 /backend/app/models/audit_log.py
-/backend/app/models/autofix_promotion.py
 /backend/app/models/autonomous_action.py
+/backend/app/models/bi_saved_query.py
 /backend/app/models/brain_decision.py
-/backend/app/models/bugfix_candidate.py
 /backend/app/models/cig.py
 /backend/app/models/community_template.py
+/backend/app/models/cross_shop_pattern.py
 /backend/app/models/daily_brief.py
 /backend/app/models/email_event.py
 /backend/app/models/event.py
-/backend/app/models/evolution_proposal.py
 /backend/app/models/execution.py
 /backend/app/models/gdpr_request.py
 /backend/app/models/inbound_email.py
@@ -389,9 +365,6 @@ Process Manager: PM2
 /backend/app/models/merchant_journey_state.py
 /backend/app/models/merchant_rule.py
 /backend/app/models/merchant_saved_report.py
-/backend/app/models/merge_outcome.py
-/backend/app/models/meta_review.py
-/backend/app/models/model_upgrade.py
 /backend/app/models/night_shift_report.py
 /backend/app/models/nudge_event.py
 /backend/app/models/nudge_impression_daily.py
@@ -399,7 +372,6 @@ Process Manager: PM2
 /backend/app/models/opportunity_signal.py
 /backend/app/models/ops_alert.py
 /backend/app/models/outbound_webhook.py
-/backend/app/models/patch_fingerprint.py
 /backend/app/models/prediction_log.py
 /backend/app/models/price_intelligence.py
 /backend/app/models/price_watch.py
@@ -407,8 +379,6 @@ Process Manager: PM2
 /backend/app/models/product_cost.py
 /backend/app/models/product_metrics.py
 /backend/app/models/product_opportunity.py
-/backend/app/models/project_brain_snapshot.py
-/backend/app/models/reviewer_assessment.py
 /backend/app/models/scaling_recommendation.py
 /backend/app/models/sentry_incident.py
 /backend/app/models/share_event.py
@@ -419,7 +389,6 @@ Process Manager: PM2
 /backend/app/models/store_metrics.py
 /backend/app/models/support_incident.py
 /backend/app/models/survey_response.py
-/backend/app/models/system_lesson.py
 /backend/app/models/system_snapshot.py
 /backend/app/models/trust_contract.py
 /backend/app/models/unique_product_detection.py
@@ -510,46 +479,12 @@ Process Manager: PM2
 /backend/app/api/ops.py :: @router.get("/approvals")
 /backend/app/api/ops.py :: @router.post("/approvals/{approval_id}/approve")
 /backend/app/api/ops.py :: @router.post("/approvals/{approval_id}/reject")
-/backend/app/api/ops.py :: @router.get("/bugfixes")
-/backend/app/api/ops.py :: @router.get("/bugfixes/{candidate_id}")
-/backend/app/api/ops.py :: @router.post("/bugfixes/{candidate_id}/propose")
-/backend/app/api/ops.py :: @router.post("/bugfixes/{candidate_id}/approve")
-/backend/app/api/ops.py :: @router.post("/bugfixes/{candidate_id}/reject")
-/backend/app/api/ops.py :: @router.post("/bugfixes/{candidate_id}/apply")
-/backend/app/api/ops.py :: @router.get("/promotions")
-/backend/app/api/ops.py :: @router.get("/promotions/{promo_id}")
-/backend/app/api/ops.py :: @router.post("/promotions/{promo_id}/branch")
-/backend/app/api/ops.py :: @router.post("/promotions/{promo_id}/ci")
-/backend/app/api/ops.py :: @router.post("/promotions/{promo_id}/approve")
-/backend/app/api/ops.py :: @router.post("/promotions/{promo_id}/reject")
-/backend/app/api/ops.py :: @router.post("/promotions/{promo_id}/push")
-/backend/app/api/ops.py :: @router.get("/promotions/{promo_id}/remote-ci")
-/backend/app/api/ops.py :: @router.post("/promotions/{promo_id}/pr")
-/backend/app/api/ops.py :: @router.post("/promotions/{promo_id}/merge")
-/backend/app/api/ops.py :: @router.get("/evolution")
-/backend/app/api/ops.py :: @router.post("/evolution/{proposal_id}/accept")
-/backend/app/api/ops.py :: @router.post("/evolution/{proposal_id}/reject")
-/backend/app/api/ops.py :: @router.post("/evolution/{proposal_id}/revalidate")
-/backend/app/api/ops.py :: @router.get("/model-upgrades")
-/backend/app/api/ops.py :: @router.get("/model-upgrades/{upgrade_id}")
-/backend/app/api/ops.py :: @router.post("/model-upgrades/{upgrade_id}/evaluate")
-/backend/app/api/ops.py :: @router.post("/model-upgrades/{upgrade_id}/approve")
-/backend/app/api/ops.py :: @router.post("/model-upgrades/{upgrade_id}/reject")
-/backend/app/api/ops.py :: @router.post("/model-upgrades/{upgrade_id}/activate")
-/backend/app/api/ops.py :: @router.post("/model-config/{module}/rollback")
-/backend/app/api/ops.py :: @router.get("/model-config")
 /backend/app/api/ops.py :: @router.get("/scaling/snapshots")
 /backend/app/api/ops.py :: @router.get("/scaling/forecast")
 /backend/app/api/ops.py :: @router.get("/scaling/recommendations")
-/backend/app/api/ops.py :: @router.get("/project-brain/summary")
-/backend/app/api/ops.py :: @router.post("/project-brain/refresh")
-/backend/app/api/ops.py :: @router.get("/project-brain/constitution")
-/backend/app/api/ops.py :: @router.post("/reviewer/assess")
+/backend/app/api/ops.py :: @router.get("/merchant-brain/summary")
+/backend/app/api/ops.py :: @router.get("/merchant-brain/decisions")
 /backend/app/api/ops.py :: @router.get("/incidents")
-/backend/app/api/ops.py :: @router.get("/meta-review")
-/backend/app/api/ops.py :: @router.get("/governance")
-/backend/app/api/ops.py :: @router.post("/lessons/{lesson_id}/promote")
-/backend/app/api/ops.py :: @router.post("/lessons/{lesson_id}/reject")
 /backend/app/api/ops.py :: @router.get("/diagnostic")
 /backend/app/api/ops.py :: @router.get("/system-health")
 /backend/app/api/ops.py :: @router.get("/attribution/health")
@@ -557,12 +492,10 @@ Process Manager: PM2
 /backend/app/api/ops.py :: @router.get("/digest/status")
 /backend/app/api/ops.py :: @router.get("/webhooks/status")
 /backend/app/api/ops.py :: @router.get("/webhooks/status/{shop_domain}")
-/backend/app/api/ops.py :: @router.get("/loop-health")
 /backend/app/api/ops.py :: @router.get("/onboarding-health")
 /backend/app/api/ops.py :: @router.get("/onboarding-funnel")
 /backend/app/api/ops.py :: @router.get("/onboarding-funnel/{shop_domain}")
 /backend/app/api/ops.py :: @router.get("/onboarding-friction")
-/backend/app/api/ops.py :: @router.get("/weakness")
 /backend/app/api/ops.py :: @router.get("/tier-check")
 /backend/app/api/ops.py :: @router.get("/file-locks")
 /backend/app/api/ops.py :: @router.get("/sentry-intake/health")
@@ -584,8 +517,6 @@ Process Manager: PM2
 /backend/app/api/ops.py :: @router.get("/incidents/triage/queue")
 /backend/app/api/ops.py :: @router.get("/incidents/parse-errors")
 /backend/app/api/ops.py :: @router.get("/incidents/consumer/stats")
-/backend/app/api/ops.py :: @router.get("/simulation/status")
-/backend/app/api/ops.py :: @router.get("/pipeline-health")
 /backend/app/api/ops.py :: @router.post("/force-logout")
 /backend/app/api/live_opportunities.py :: @router.get("/live-opportunities")
 /backend/app/api/telegram_webhook.py :: @router.post("/webhook")  # test-exempt: webhook-receiver
@@ -614,6 +545,11 @@ Process Manager: PM2
 /backend/app/api/billing.py :: @router.post("/subscribe")
 /backend/app/api/billing.py :: @router.get("/callback")
 /backend/app/api/rum.py :: @router.post("/metric", status_code=status.HTTP_202_ACCEPTED)
+/backend/app/api/bi_query.py :: @router.get("/pro/bi/schema", response_model=BiSchemaResponse)
+/backend/app/api/bi_query.py :: @router.post("/pro/bi/query", response_model=QueryResponse)
+/backend/app/api/bi_query.py :: @router.get("/pro/bi/saved-queries", response_model=SavedQueriesResponse)
+/backend/app/api/bi_query.py :: @router.post("/pro/bi/saved-queries", response_model=SavedQueryItem)
+/backend/app/api/bi_query.py :: @router.delete(
 /backend/app/api/reports.py :: @router.get("/merchant/reports/standard", response_model=StandardSurfacesOut)
 /backend/app/api/reports.py :: @router.get("/merchant/reports", response_model=SavedReportListOut)
 /backend/app/api/reports.py :: @router.post("/merchant/reports", response_model=SavedReportOut)
@@ -622,10 +558,10 @@ Process Manager: PM2
 /backend/app/api/reports.py :: @router.delete("/merchant/reports/{report_id}", response_model=SavedReportOut)
 /backend/app/api/reports.py :: @router.post("/merchant/reports/{report_id}/schedule", response_model=SavedReportOut)
 /backend/app/api/reports.py :: @router.get("/merchant/reports/{report_id}/data", response_model=ReportDataOut)
-/backend/app/api/night_shift.py :: @router.get("/pro/night-shift/latest", response_model=NightShiftReport)
-/backend/app/api/night_shift.py :: @router.post("/pro/night-shift/run", response_model=NightShiftReport)
-/backend/app/api/night_shift.py :: @router.get("/pro/night-shift/timeline", response_model=TimelineResponse)
-/backend/app/api/night_shift.py :: @router.post("/pro/night-shift/apply", response_model=ApplyActionResponse)
+/backend/app/api/night_shift.py :: @router.get("/scale/night-shift/latest", response_model=NightShiftReport)
+/backend/app/api/night_shift.py :: @router.post("/scale/night-shift/run", response_model=NightShiftReport)
+/backend/app/api/night_shift.py :: @router.get("/scale/night-shift/timeline", response_model=TimelineResponse)
+/backend/app/api/night_shift.py :: @router.post("/scale/night-shift/apply", response_model=ApplyActionResponse)
 /backend/app/api/track_purchase.py :: @router.post("/track/purchase-confirmed")
 /backend/app/api/live_alerts.py :: @router.get(
 /backend/app/api/live_alerts.py :: @router.get(
@@ -702,6 +638,7 @@ Process Manager: PM2
 /backend/app/api/dashboard.py :: @router.get("/overview")
 /backend/app/api/dashboard.py :: @router.get("/intelligence")
 /backend/app/api/dashboard.py :: @router.get("/overview/pro")
+/backend/app/api/recurring_buyers.py :: @router.get(
 /backend/app/api/merchant_export.py :: @router.get("/export")
 /backend/app/api/team.py :: @router.get(
 /backend/app/api/team.py :: @router.post(
@@ -746,8 +683,8 @@ Process Manager: PM2
 /backend/app/api/webhooks.py :: @router.post("/shopify/customers-data-request")  # test-exempt: webhook-receiver
 /backend/app/api/webhooks.py :: @router.post("/shopify/shop-redact")  # test-exempt: webhook-receiver
 /backend/app/api/abandoned_intent.py :: @router.get("/pro/abandoned-intent", response_model=AbandonedIntentResponse)
+/backend/app/api/store_profile.py :: @router.get("/pro/store-profile", response_model=StoreProfileResponse)
 /backend/app/api/price_intelligence.py :: @router.get("/price-intelligence/top")
-/backend/app/api/price_intelligence.py :: @router.post("/price-radar")
 /backend/app/api/product_trend.py :: @router.get("/trend", response_model=ProductTrendResponse)
 /backend/app/api/merchant_churn.py :: @router.get("/ops/churn-report")
 /backend/app/api/merchant_churn.py :: @router.get("/ops/churn-score/{shop_domain}")
@@ -773,9 +710,6 @@ Process Manager: PM2
 /backend/app/api/auth_posture.py :: @router.get("/ops/auth/posture")
 /backend/app/api/compliance_evidence.py :: @router.get("/soc2")
 /backend/app/api/compliance_evidence.py :: @router.get("/evidence")
-/backend/app/api/auth.py :: @router.get("/install")
-/backend/app/api/auth.py :: @router.get("/auth/callback")
-/backend/app/api/events.py :: @router.post("/track-event")
 /backend/app/api/community_marketplace.py :: @router.get("/pro/marketplace/templates", response_model=MarketplaceTemplatesListResponse)
 /backend/app/api/community_marketplace.py :: @router.post("/pro/marketplace/templates", response_model=PublishResponse)
 /backend/app/api/community_marketplace.py :: @router.post("/pro/marketplace/templates/{template_id}/clone", response_model=CloneResponse)
@@ -908,6 +842,7 @@ Process Manager: PM2
 /pricing
 /privacy
 /proof
+/proof/showcase
 /status
 /terms
 /transparency

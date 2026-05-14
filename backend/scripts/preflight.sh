@@ -158,6 +158,35 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b'. Env-file perms — every .env on disk must be 0o600/0o400 (owner-only).
+# Born 2026-05-14 after external-CTO audit flagged backend/.env as 644
+# (world-readable: live Shopify/Telegram/Resend/Anthropic/OpenAI keys
+# + AES encryption keys exposed to any process on the host). Layer-1 of
+# a 3-layer defense: this preflight + env_bootstrap startup log +
+# invariant_monitor periodic check (_check_env_file_perms).
+# ---------------------------------------------------------------------------
+step "Env file perms (audit_env_file_perms.py)"
+if "$PY" scripts/audit_env_file_perms.py > /tmp/preflight_env_perms.log 2>&1; then
+    ok "all env files are 600/400"
+else
+    bad "env file perm drift — see /tmp/preflight_env_perms.log"
+    tail -20 /tmp/preflight_env_perms.log
+fi
+
+# ---------------------------------------------------------------------------
+# 2b''. GDPR receipt-only contract — `gdpr_requests.result_summary` must
+# never carry raw PII (events/orders/visitor_state/nudge_events arrays).
+# Born 2026-05-14 (TIER_2) — Art. 5(1)(c) data minimisation enforcement.
+# ---------------------------------------------------------------------------
+step "GDPR receipt-only contract (audit_gdpr_no_pii_in_result_summary.py)"
+if "$PY" scripts/audit_gdpr_no_pii_in_result_summary.py > /tmp/preflight_gdpr_receipt.log 2>&1; then
+    ok "receipt-only contract intact"
+else
+    bad "GDPR receipt contract drift — see /tmp/preflight_gdpr_receipt.log"
+    tail -20 /tmp/preflight_gdpr_receipt.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2c. Critical-secrets consistency — every entry in
 # auth_hardening._CRITICAL_SECRETS must be read as os.getenv/os.environ
 # somewhere in app/. Catches the 2026-05-02 drift class where a name in

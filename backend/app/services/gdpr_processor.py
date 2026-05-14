@@ -220,14 +220,11 @@ def _process_customers_redact(db: Session, req: GdprRequest) -> str:
 
 def _process_customers_data_request(db: Session, req: GdprRequest) -> str:
     """
-    Customer data export request.
+    Customer data export request (GDPR Art. 15).
 
-    Collects all data WishSpark holds for a customer, identified via:
+    Collects all data HedgeSpark holds for a customer via:
       1. customer_id → shop_orders → visitor_purchase_sessions → visitor_ids
       2. customer_email → shop_orders (same chain)
-
-    Produces a structured JSON export persisted in result_summary.
-    Shopify allows 30 days to respond.
 
     Export includes:
       - Order records (financial, not PII — email already separate)
@@ -235,9 +232,27 @@ def _process_customers_data_request(db: Session, req: GdprRequest) -> str:
       - Visitor product state (intent scores)
       - Nudge events (impressions, dismissals)
 
-    Secure delivery to the customer is NOT implemented — the export
-    artifact is stored in the gdpr_requests.result_summary column for
-    operator retrieval. External delivery is a future enhancement.
+    Delivery: synchronous email via the governed orchestrator with the
+    full JSON export inlined. Shopify allows 30 days to respond; we
+    target same-cycle delivery (<5 minutes typical).
+
+    Data minimisation (GDPR Art. 5(1)(c)) — REWORKED 2026-05-14 (TIER_2)
+    after external-CTO audit flagged the legacy pattern that persisted
+    the full PII export blob to gdpr_requests.result_summary as a
+    "manual-delivery fallback". A DB breach would have exposed every
+    historical Art. 15 export blob in plaintext, with a clean index by
+    request_id. The PII surface is gone in this version:
+
+      * PII export lives in-memory ONLY for the duration of this call
+      * result_summary stores a RECEIPT (counts + delivery status +
+        recipient hash) — no raw events/orders/visitor data
+      * On delivery failure the function raises; outer handler marks
+        status=failed; operator re-triggers via
+        `POST /ops/gdpr/exports/{id}/redeliver` which resets to pending
+        and the next worker cycle rebuilds the export from source
+
+    Source tables are the durable copy. Re-derivation is always
+    possible until the matching `customers_redact` deletes them.
     """
     shop = req.shop_domain
     customer_id = req.customer_id
@@ -328,10 +343,13 @@ def _process_customers_data_request(db: Session, req: GdprRequest) -> str:
             for r in rows
         ]
 
-    summary = json.dumps(export, default=str)
+    # In-memory PII blob — NEVER persisted to gdpr_requests.result_summary.
+    # Serialised here only so the email orchestrator can inline it in
+    # the delivery body. Goes out of scope at end of function.
+    export_json = json.dumps(export, default=str)
     from app.core.privacy import mask_email
     log.info(
-        "gdpr_processor: data export complete request_id=%d shop=%s "
+        "gdpr_processor: data export built request_id=%d shop=%s "
         "visitors=%d orders=%d events=%d recipient=%s",
         req.id, shop,
         len(visitor_ids),
@@ -340,40 +358,80 @@ def _process_customers_data_request(db: Session, req: GdprRequest) -> str:
         mask_email(email),
     )
 
-    # Auto-delivery (GDPR Art. 15 — "electronic form", "without undue delay").
-    # Previously the artifact sat in `result_summary` waiting for a human
-    # operator to manually email it. We now ship it to the customer via
-    # the governed email orchestrator, with the export inlined as HTML.
-    # Failures are non-fatal: the artifact still persists in
-    # `result_summary` so the operator has a manual-delivery fallback.
-    if email:
-        try:
-            delivered = _deliver_customer_export(
-                db=db,
-                customer_email=email,
-                shop_domain=shop,
-                export_json=summary,
-                request_id=req.id,
-            )
-            export["delivery"] = {
-                "status": "sent" if delivered else "failed",
-                "channel": "email_orchestrator",
-                "recipient_hash": _hash_email(email),
-            }
-            summary = json.dumps(export, default=str)
-        except Exception as exc:
-            log.warning(
-                "gdpr_processor: auto-delivery failed request_id=%d: %s",
-                req.id, exc,
-            )
-    else:
-        log.info(
-            "gdpr_processor: no customer_email on request_id=%d — "
-            "artifact remains in result_summary for operator retrieval",
-            req.id,
+    # Auto-delivery (GDPR Art. 15 — "electronic form, without undue delay").
+    # No email → cannot deliver → raise; outer handler marks failed and
+    # operator re-triggers after correcting the request_data.
+    if not email:
+        raise GdprDeliveryFailed(
+            f"customers_data_request id={req.id} has no customer_email "
+            f"— Shopify webhook should always include it; operator "
+            f"must populate it before redeliver"
         )
 
-    return summary
+    delivered = _deliver_customer_export(
+        db=db,
+        customer_email=email,
+        shop_domain=shop,
+        export_json=export_json,
+        request_id=req.id,
+    )
+    if not delivered:
+        raise GdprDeliveryFailed(
+            f"email orchestrator could not deliver GDPR export "
+            f"request_id={req.id}; operator can retry via "
+            f"/ops/gdpr/exports/{req.id}/redeliver"
+        )
+
+    # Build receipt — counts + delivery metadata only, no PII.
+    receipt = _build_export_receipt(
+        request_id=req.id,
+        counts=export["data"],
+        delivery_status="sent",
+        recipient_hash=_hash_email(email),
+    )
+    return json.dumps(receipt, default=str)
+
+
+class GdprDeliveryFailed(RuntimeError):
+    """Raised when a customers_data_request cannot be delivered. The
+    outer handler in `process_gdpr_request` catches this, marks the
+    row status='failed' with error_detail, and the operator re-
+    triggers via the ops redeliver endpoint."""
+
+
+def _build_export_receipt(
+    *,
+    request_id: int,
+    counts: dict,
+    delivery_status: str,
+    recipient_hash: str | None,
+) -> dict:
+    """Build the RECEIPT-ONLY summary that lands in
+    gdpr_requests.result_summary for a customers_data_request.
+
+    Receipt schema (STRUCTURAL CONTRACT — every field listed below;
+    no key outside this set is allowed in result_summary). The audit
+    `scripts/audit_gdpr_no_pii_in_result_summary.py` enforces the
+    schema both statically (callers grep) and at runtime (parses
+    stored rows).
+
+    Customer identity is in the gdpr_requests row itself
+    (`customer_id` / `customer_email` columns); intentionally not
+    duplicated in the receipt to avoid creating a second PII surface.
+    """
+    return {
+        "phase": "delivered" if delivery_status == "sent" else "failed",
+        "delivery_status": delivery_status,
+        "recipient_hash": recipient_hash,
+        "request_id": request_id,
+        "counts": {
+            "visitor_ids_found": int(counts.get("visitor_ids_found") or 0),
+            "orders": len(counts.get("orders") or []),
+            "events": len(counts.get("events") or []),
+            "visitor_state": len(counts.get("visitor_state") or []),
+            "nudge_events": len(counts.get("nudge_events") or []),
+        },
+    }
 
 
 def _hash_email(email: str) -> str:

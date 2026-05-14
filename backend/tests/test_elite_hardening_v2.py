@@ -1050,8 +1050,9 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     "app/services/email_performance.py:63",
     # gdpr_processor: where clause built from hardcoded ":cid"/":email"
     # filter strings joined with " OR ". Parameters are bound via the
-    # second arg to execute().
-    "app/services/gdpr_processor.py:283",
+    # second arg to execute(). Line shifted 283 → 298 by 2026-05-14
+    # TIER_2 refactor (receipt-only contract docstring expansion).
+    "app/services/gdpr_processor.py:298",
     # gdpr_processor:566 removed 2026-05-04 — Art. 17 erasure refactored
     # to single multi-CTE statement; SQL is built into a `sql` variable
     # then passed to text(sql), so no inline `text(f"…")` site exists.

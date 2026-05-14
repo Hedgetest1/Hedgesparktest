@@ -624,6 +624,10 @@ def run_invariant_check(db: Session) -> dict:
         _check_operator_shop_drift(db, summary)
     except Exception as exc:
         log.warning("invariant_monitor: operator-drift check failed: %s", exc)
+    try:
+        _check_env_file_perms(db, summary)
+    except Exception as exc:
+        log.warning("invariant_monitor: env-perm check failed: %s", exc)
     # preventer-regression check removed Stage 2-E (depended on old-brain
     # bugfix_pipeline.check_preventer_regressions, deleted with the
     # supersession sweep). Brain Vero owns regression detection now via
@@ -1496,3 +1500,86 @@ def _check_operator_shop_drift(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: operator-drift alert write failed: %s", exc)
+
+
+def _check_env_file_perms(db: Session, summary: dict) -> None:
+    """Detect `.env` files on disk with group/world-readable mode.
+
+    Layer 3 of the env-perm defense (static preflight + boot-time
+    log = layers 1-2). The startup hook in `env_bootstrap.py` runs
+    once per process boot; this check runs every 15-min cycle so
+    drift introduced after boot (an operator `chmod 644` to debug,
+    forgotten) is caught within minutes.
+
+    Born 2026-05-14 after external-CTO audit flagged
+    `/opt/wishspark/backend/.env` mode 644 (world-readable). The file
+    holds live Shopify API secret, encryption keys, Telegram bot
+    token, Resend/Anthropic/OpenAI keys, Sentry webhook secret.
+
+    Acceptable modes: 0o600 (owner rw) or 0o400 (owner ro). Any
+    group/world bit set (mode & 0o077) is a drift. Missing files
+    are skipped (a dev box without one .env is not a drift; the
+    bootstrap will fail-loud elsewhere if env vars are missing).
+
+    Auto-resolves the prior invariant_regression when perms are
+    restored on the next cycle (matches the operator_shop_drift /
+    sentry_triage_stuck heal pattern).
+    """
+    summary["checked"] += 1
+    import os as _os
+    import stat as _stat
+    from pathlib import Path as _Path
+    try:
+        from app.services.alerting import write_alert
+    except Exception as exc:
+        log.warning("invariant_monitor: env-perm imports failed: %s", exc)
+        return
+
+    # Mirror the static auditor: same two files.
+    _BACKEND_DIR = _Path(__file__).resolve().parents[2]
+    _REPO_ROOT = _BACKEND_DIR.parent
+    candidates = (
+        _BACKEND_DIR / ".env",
+        _REPO_ROOT / "dashboard" / ".env.local",
+    )
+
+    drifted: list[dict] = []
+    for env_file in candidates:
+        try:
+            if not env_file.exists():
+                continue
+            mode = _stat.S_IMODE(_os.stat(env_file).st_mode)
+        except OSError:
+            continue
+        if mode & 0o077:
+            drifted.append({"path": str(env_file), "mode": oct(mode)})
+
+    if not drifted:
+        _auto_resolve_prior_invariant(db, "invariant:env_perm_drift")
+        return
+
+    summary["failed"] += 1
+    try:
+        write_alert(
+            db,
+            severity="critical",
+            source="invariant:env_perm_drift",
+            alert_type="invariant_regression",
+            summary=(
+                f"Env file(s) with group/world-readable mode: "
+                f"{len(drifted)} file(s)"
+            ),
+            detail={
+                "drifted_files": drifted,
+                "remediation": (
+                    "Run `chmod 600 <path>` for each listed file. "
+                    "Live API keys + encryption secrets exposed to "
+                    "any process or user on the host. Static preflight "
+                    "auditor: `./venv/bin/python scripts/audit_env_file_perms.py`."
+                ),
+                "doctrine_ref": "CLAUDE.md §9.3 / audit_env_file_perms.py",
+            },
+        )
+        summary["alerts_written"] += 1
+    except Exception as exc:
+        log.error("invariant_monitor: env-perm alert write failed: %s", exc)

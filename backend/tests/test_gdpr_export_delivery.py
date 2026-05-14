@@ -88,9 +88,11 @@ def test_deliver_returns_false_on_exception(db):
     assert result is False
 
 
-def test_processor_annotates_summary_with_delivery_status(db):
-    """Full path: _process_customers_data_request embeds delivery status
-    in the export artifact."""
+def test_processor_returns_delivery_receipt_only(db):
+    """Full path: _process_customers_data_request returns a RECEIPT
+    (counts + delivery metadata) — never the raw PII export. Receipt
+    schema locked in `_build_export_receipt`; this is the integration
+    contract."""
     req = GdprRequest(
         request_type="customers_data_request",
         shop_domain="delivery-test.myshopify.com",
@@ -107,7 +109,20 @@ def test_processor_annotates_summary_with_delivery_status(db):
     ):
         summary = _process_customers_data_request(db, req)
 
-    body = json.loads(summary)
-    assert body["delivery"]["status"] == "sent"
-    assert body["delivery"]["channel"] == "email_orchestrator"
-    assert body["delivery"]["recipient_hash"] == _hash_email(req.customer_email)
+    receipt = json.loads(summary)
+    assert receipt["phase"] == "delivered"
+    assert receipt["delivery_status"] == "sent"
+    assert receipt["recipient_hash"] == _hash_email(req.customer_email)
+    assert receipt["request_id"] == req.id
+    # No raw PII fields in the receipt
+    assert "data" not in receipt
+    assert "customer_email" not in receipt
+    assert "shop_domain" not in receipt
+    # Counts present and zero-shaped (empty shop, no source data)
+    assert receipt["counts"] == {
+        "visitor_ids_found": 0,
+        "orders": 0,
+        "events": 0,
+        "visitor_state": 0,
+        "nudge_events": 0,
+    }

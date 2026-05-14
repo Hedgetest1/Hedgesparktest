@@ -13,6 +13,17 @@ backend/venv/
 dashboard/node_modules/
 dashboard/.next/
 
+# Stray Next.js trace files written from wrong CWD (root)
+/.next/
+
+# Operator-local Claude Code state (.claude/skills/ and .claude/agents/
+# are committed source — see CLAUDE.md §25). Local settings + scheduled
+# task locks are operational state, not source.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+backend/.claude/
+dashboard/.claude/
+
 # Sandbox run data (operational, not source)
 sandbox/
 

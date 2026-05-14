@@ -601,16 +601,65 @@ def get_gdpr_export(
     }
 
     if req.status == "completed" and req.result_summary:
+        # Receipt-only since 2026-05-14 (TIER_2 GDPR Art. 5 minimisation).
+        # Result summary holds counts + delivery status + recipient_hash;
+        # the raw PII export was delivered via email_orchestrator and is
+        # not retained at rest. To re-send: POST /ops/gdpr/exports/{id}/redeliver.
         try:
-            base["export"] = json.loads(req.result_summary)
+            base["receipt"] = json.loads(req.result_summary)
         except (json.JSONDecodeError, ValueError):
-            base["export"] = req.result_summary
+            base["receipt"] = req.result_summary
     elif req.status == "failed":
         base["error"] = req.error_detail
+        base["redeliver_hint"] = (
+            f"POST /ops/gdpr/exports/{req.id}/redeliver to retry "
+            f"(rebuilds export from source tables)"
+        )
     elif req.status == "pending":
         base["note"] = "Export is queued and will be processed within the next worker cycle."
 
     return base
+
+
+@router.post("/gdpr/exports/{request_id}/redeliver")
+def redeliver_gdpr_export(
+    request_id: int,
+    _auth: bool = Depends(require_operator),
+    db: Session = Depends(get_db),
+):
+    """Re-trigger an Art. 15 export delivery for a customers_data_request.
+
+    Resets the request to pending so the next gdpr_worker cycle rebuilds
+    the export from source tables (events, shop_orders, etc.) and
+    re-attempts email delivery. Used when:
+      - the original delivery failed (status='failed')
+      - the customer reports they did not receive the email
+      - operator needs to refresh after a customer_email correction
+
+    Source data must still exist; if a matching customers_redact has
+    since deleted it, the rebuilt export will be empty (that's a
+    legitimate state — Art. 17 wins over Art. 15 for the same subject).
+    """
+    from app.models.gdpr_request import GdprRequest
+    req = db.get(GdprRequest, request_id)
+    if not req:
+        raise HTTPException(404, "GDPR request not found")
+    if req.request_type != "customers_data_request":
+        raise HTTPException(400, "Redeliver is only valid for customers_data_request")
+    if req.status not in ("failed", "completed"):
+        raise HTTPException(
+            400,
+            f"Request status='{req.status}' — only failed/completed rows can "
+            f"be redelivered (pending/processing rows are already queued)",
+        )
+
+    req.status = "pending"
+    req.processed_at = None
+    req.error_detail = None
+    req.result_summary = None
+    db.commit()
+    log.info("ops.redeliver_gdpr_export: id=%d reset to pending", request_id)
+    return {"status": "queued", "id": request_id}
 
 
 # ---------------------------------------------------------------------------
