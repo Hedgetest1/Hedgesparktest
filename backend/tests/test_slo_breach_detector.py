@@ -65,9 +65,13 @@ def _clean_slo_redis():
 
 
 def _seed(route: str, method: str, status: int, duration_ms: float, n: int = 1) -> None:
-    from app.core.slo import record_timing
+    """Seed an observation. 2026-05-14 batched-flush change: record_timing
+    buffers in-process; force a synchronous flush so the immediate
+    `detect_slo_breaches` read sees the data."""
+    from app.core.slo import record_timing, _flush_buffer
     for _ in range(n):
         record_timing(route, method, status, duration_ms)
+    _flush_buffer()
 
 
 class TestSloBreachDetector:

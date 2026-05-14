@@ -33,6 +33,11 @@ class FakePipeline:
     def incr(self, key):
         self.rc.counters[key] = self.rc.counters.get(key, 0) + 1
         return self
+    def incrby(self, key, amount):
+        """Added 2026-05-14: batched-flush record path issues incrby with
+        accumulated count instead of incr-per-observation."""
+        self.rc.counters[key] = self.rc.counters.get(key, 0) + amount
+        return self
     def execute(self):
         return self.ops
 
@@ -56,6 +61,7 @@ def test_route_stats_uses_redis():
     with patch("app.core.slo._redis", return_value=fake):
         for i in range(10):
             slo.record_timing("/pro/rars", "GET", 200, 100 + i * 10)
+        slo._flush_buffer()  # 2026-05-14 batched-flush: force drain in tests
         stats = slo.route_stats("/pro/rars", "GET", "5m")
 
     assert stats["observations"] >= 1
@@ -118,6 +124,7 @@ def test_record_timing_identical_duration_same_ms_does_not_coalesce():
     with patch("app.core.slo._redis", return_value=fake):
         for _ in range(20):
             slo.record_timing("/hot", "POST", 200, 500.0)
+        slo._flush_buffer()  # 2026-05-14 batched-flush: force drain
     # Both windows should have 20 distinct members.
     for window in ("5m", "60m"):
         key = f"hs:slo:tm:{window}:POST:/hot"
@@ -135,6 +142,7 @@ def test_route_stats_parses_ns_prefixed_members():
     with patch("app.core.slo._redis", return_value=fake):
         for _ in range(15):
             slo.record_timing("/parse-check", "GET", 200, 300.0)
+        slo._flush_buffer()  # 2026-05-14 batched-flush: force drain
         stats = slo.route_stats("/parse-check", "GET", "5m")
     assert stats["observations"] == 15
     assert stats["p95_ms"] == 300.0
