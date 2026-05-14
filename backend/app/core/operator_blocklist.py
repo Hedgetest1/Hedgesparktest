@@ -42,6 +42,15 @@ _OPERATOR_DEV_SHOPS: frozenset[str] = frozenset({
     # receive merchant emails (digest / lifecycle / re-engagement /
     # silence / onboarding / breach-self / etc.).
     "hedgespark-dev.myshopify.com",
+    # Smoke-test tenant for periodic install / pixel / OAuth probes.
+    # Identified 2026-05-14 via DB sweep: contact_email is
+    # `smoke@hedgesparkhq.com` (founder's company domain) → operator-
+    # owned. Without this entry the hourly pixel_abandonment cycle
+    # accumulated 25+ ops_alerts rows over 702h (delivery=skipped so
+    # no Telegram noise, but ops_alerts table pressure + visibility
+    # noise on /ops/system-health). Also blocks future merchant emails
+    # to the smoke tenant for symmetry with the dev tenant.
+    "hedgespark-smoke.myshopify.com",
 })
 
 
@@ -52,6 +61,11 @@ _OPERATOR_DEV_SHOPS: frozenset[str] = frozenset({
 # still catches the leak. Lowercased for case-insensitive match.
 _OPERATOR_EMAIL_ADDRESSES: frozenset[str] = frozenset({
     "tedialarana@gmail.com",
+    # Smoke-test tenant contact (see hedgespark-smoke.myshopify.com
+    # entry above). Belt-and-suspenders: even if the merchant row's
+    # shop_domain check fails for any reason, the email-address gate
+    # still blocks an outbound to the smoke contact.
+    "smoke@hedgesparkhq.com",
 })
 
 

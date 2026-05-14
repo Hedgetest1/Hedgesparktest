@@ -620,6 +620,10 @@ def run_invariant_check(db: Session) -> dict:
         _check_inventory_snapshot_freshness(db, summary)
     except Exception as exc:
         log.warning("invariant_monitor: inventory-snapshot check failed: %s", exc)
+    try:
+        _check_operator_shop_drift(db, summary)
+    except Exception as exc:
+        log.warning("invariant_monitor: operator-drift check failed: %s", exc)
     # preventer-regression check removed Stage 2-E (depended on old-brain
     # bugfix_pipeline.check_preventer_regressions, deleted with the
     # supersession sweep). Brain Vero owns regression detection now via
@@ -1393,3 +1397,102 @@ def _check_inventory_snapshot_freshness(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: inventory freshness alert write failed: %s", exc)
+
+
+def _check_operator_shop_drift(db: Session, summary: dict) -> None:
+    """Detect operator-class shops in the merchants table that are NOT
+    declared in `app.core.operator_blocklist._OPERATOR_DEV_SHOPS`.
+
+    tenant-isolation-exempt: monitoring query.
+
+    Operator-class detection (either signal qualifies):
+      * `contact_email` ends with `@hedgesparkhq.com` (founder's
+        company domain — by policy, every shop with this contact is
+        founder-owned)
+      * `shop_domain` starts with `hedgespark-` (founder-owned naming
+        convention; observed pattern: hedgespark-dev, hedgespark-smoke)
+
+    Why this exists: 2026-05-14 found `hedgespark-smoke.myshopify.com`
+    in the DB with `smoke@hedgesparkhq.com` contact, but missing from
+    `_OPERATOR_DEV_SHOPS`. Symptom: 25+ noise `pixel_abandonment` alerts
+    accumulated over 702h. Fixed by adding the entry. This check fires
+    invariant_regression CRITICAL if a future founder-tenant lands in
+    DB without the matching declaration — closes the class.
+
+    Conservative: any shop already in the declared frozenset is
+    explicitly EXCLUDED from the drift report (the declaration is the
+    sufficient act). Only undeclared operator-class shops trigger.
+    """
+    summary["checked"] += 1
+    try:
+        from sqlalchemy import text as _text
+        from app.core.operator_blocklist import operator_dev_shops
+        from app.services.alerting import write_alert
+    except Exception as exc:
+        log.warning("invariant_monitor: operator-drift imports failed: %s", exc)
+        return
+
+    declared = {s.lower() for s in operator_dev_shops()}
+    try:
+        rows = db.execute(_text(
+            """
+            SELECT shop_domain, contact_email, install_status, installed_at
+            FROM merchants
+            WHERE (
+                LOWER(COALESCE(contact_email, '')) LIKE '%@hedgesparkhq.com'
+                OR LOWER(shop_domain) LIKE 'hedgespark-%'
+            )
+            ORDER BY installed_at DESC
+            LIMIT 50
+            """
+        )).fetchall()
+    except Exception as exc:
+        log.warning("invariant_monitor: operator-drift probe failed: %s", exc)
+        return
+
+    drifted = [
+        r for r in rows
+        if (r.shop_domain or "").strip().lower() not in declared
+    ]
+    if not drifted:
+        _auto_resolve_prior_invariant(db, "invariant:operator_shop_drift")
+        return
+
+    summary["failed"] += 1
+    try:
+        write_alert(
+            db,
+            severity="critical",
+            source="invariant:operator_shop_drift",
+            alert_type="invariant_regression",
+            summary=(
+                f"Operator-class shop in DB not declared in "
+                f"_OPERATOR_DEV_SHOPS: {len(drifted)} shop(s)"
+            ),
+            detail={
+                "drifted_shops": [
+                    {
+                        "shop_domain": r.shop_domain,
+                        "contact_email": r.contact_email,
+                        "install_status": r.install_status,
+                        "installed_at": (
+                            r.installed_at.isoformat()
+                            if r.installed_at else None
+                        ),
+                    }
+                    for r in drifted
+                ],
+                "remediation": (
+                    "Add each `shop_domain` to "
+                    "`app/core/operator_blocklist.py::_OPERATOR_DEV_SHOPS` "
+                    "and the matching contact_email to "
+                    "`_OPERATOR_EMAIL_ADDRESSES`. Without the declaration, "
+                    "merchant-funnel-state alerts fire for the founder's "
+                    "own test tenants (noise + ops_alerts pressure) AND "
+                    "outbound merchant-shaped emails may leak."
+                ),
+            },
+        )
+        summary["alerts_written"] += 1
+    except Exception as exc:
+        log.error("invariant_monitor: operator-drift alert write failed: %s", exc)

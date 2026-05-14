@@ -27,6 +27,16 @@ def test_operator_dev_shop_predicate_matches_known_shops():
     """Hardcoded operator shops must match. Adding new entries
     requires updating both the module + this test."""
     assert is_operator_dev_shop("hedgespark-dev.myshopify.com") is True
+    # Born 2026-05-14: smoke-test tenant added after DB sweep found
+    # 25+ pixel_abandonment alerts accumulating on it.
+    assert is_operator_dev_shop("hedgespark-smoke.myshopify.com") is True
+
+
+def test_operator_email_smoke_address_blocked():
+    """Smoke-tenant contact email is the second declared operator
+    address. Belt-and-suspenders for the smoke shop."""
+    assert is_operator_email("smoke@hedgesparkhq.com") is True
+    assert is_operator_email("Smoke@HedgeSparkHQ.com") is True
 
 
 def test_operator_dev_shop_case_insensitive():
