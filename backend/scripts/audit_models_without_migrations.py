@@ -39,6 +39,7 @@ sys.path.insert(0, "/opt/wishspark/backend")
 from sqlalchemy import inspect
 
 from app.core.database import engine
+from _audit_io import safe_read_text
 
 try:
     from _audit_telemetry_shim import telemetered
@@ -66,7 +67,9 @@ def discover_models() -> dict[str, str]:
     for py in sorted(MODELS_DIR.glob("*.py")):
         if py.name == "__init__.py":
             continue
-        text = py.read_text(encoding="utf-8", errors="replace")
+        text = safe_read_text(py, errors="replace")
+        if text is None:
+            continue
         for match in _TABLENAME_RE.finditer(text):
             models[match.group(1)] = py.name
     return models
@@ -85,7 +88,9 @@ def collect_migration_table_names() -> set[str]:
         re.IGNORECASE,
     )
     for py in MIGRATIONS_DIR.glob("*.py"):
-        text = py.read_text(encoding="utf-8", errors="replace")
+        text = safe_read_text(py, errors="replace")
+        if text is None:
+            continue
         for m in op_create.finditer(text):
             seen.add(m.group(1))
         for m in raw_create.finditer(text):

@@ -41,6 +41,7 @@ import pathlib
 import re
 import subprocess
 import sys
+from _audit_io import safe_read_text
 
 try:
     from _audit_telemetry_shim import telemetered

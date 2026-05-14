@@ -59,6 +59,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 API_DIR = BACKEND_ROOT / "app" / "api"
@@ -130,9 +131,8 @@ class GateSite:
 
 
 def _scan_file(path: Path) -> list[GateSite]:
-    try:
-        text = path.read_text()
-    except (OSError, UnicodeDecodeError):
+    text = safe_read_text(path)
+    if text is None:
         return []
     if _GATE_TOKEN not in text:
         return []

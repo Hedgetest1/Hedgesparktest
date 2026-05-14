@@ -34,6 +34,7 @@ import ast
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "app" / "services"

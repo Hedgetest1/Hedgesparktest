@@ -36,6 +36,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
@@ -65,9 +66,8 @@ def _modules_with_test_imports() -> set[str]:
         r"import\s+app\.(?:services|workers|workers\.tasks|api|core)\.(\w+)"
     )
     for tf in TESTS.rglob("*.py"):
-        try:
-            text = tf.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        text = safe_read_text(tf)
+        if text is None:
             continue
         for m in pat.finditer(text):
             mod = m.group(1) or m.group(2)
@@ -77,9 +77,8 @@ def _modules_with_test_imports() -> set[str]:
 
 
 def _has_opt_out(path: Path) -> bool:
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
+    text = safe_read_text(path)
+    if text is None:
         return False
     return bool(_OPT_OUT_RE.search(text))
 

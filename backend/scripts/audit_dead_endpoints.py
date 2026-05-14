@@ -24,6 +24,7 @@ import re
 import sys
 from collections import defaultdict
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 sys.path.insert(0, "/opt/wishspark/backend")
 

@@ -36,6 +36,7 @@ from __future__ import annotations
 import ast
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 API_DIR = REPO_ROOT / "app" / "api"
@@ -124,7 +125,9 @@ def _has_optout(src_lines: list[str], decorator_line: int) -> bool:
 
 
 def audit_file(path: Path) -> list[tuple[int, str]]:
-    src = path.read_text()
+    src = safe_read_text(path)
+    if src is None:
+        return []
     src_lines = src.split("\n")
     try:
         tree = ast.parse(src)
@@ -159,7 +162,9 @@ def _apply_fix(path: Path, decorator_lines: list[int]) -> int:
     """
     import re
 
-    src = path.read_text()
+    src = safe_read_text(path)
+    if src is None:
+        return 0
     src_lines = src.split("\n")
     tree = ast.parse(src)
 

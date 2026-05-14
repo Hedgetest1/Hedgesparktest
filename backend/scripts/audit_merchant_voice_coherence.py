@@ -37,6 +37,7 @@ import re
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BACKEND_ROOT = REPO_ROOT / "backend"
@@ -236,9 +237,8 @@ def check_pricing(files: list[Path]) -> list[str]:
     """Rule 1 BLOCKING — forbidden pricing phrases."""
     findings: list[str] = []
     for path in files:
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
+        text = safe_read_text(path)
+        if text is None:
             continue
         for ln, line in enumerate(text.splitlines(), start=1):
             if _is_ignored_line(line):
@@ -254,9 +254,8 @@ def check_third_person(files: list[Path]) -> list[str]:
     """Rule 3 BLOCKING — third-person narration on Spark surfaces."""
     findings: list[str] = []
     for path in files:
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
+        text = safe_read_text(path)
+        if text is None:
             continue
         for ln, line in enumerate(text.splitlines(), start=1):
             if _is_ignored_line(line):
@@ -276,9 +275,8 @@ def check_jargon_unglossed(files: list[Path]) -> list[str]:
     """Rule 2 WARNING — jargon tokens without a gloss hint on the same line."""
     findings: list[str] = []
     for path in files:
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
+        text = safe_read_text(path)
+        if text is None:
             continue
         for ln, line in enumerate(text.splitlines(), start=1):
             if _is_ignored_line(line):
@@ -305,9 +303,8 @@ def check_personality(files: list[Path]) -> list[str]:
     """Rule 4 WARNING — emojis in prose + multi-exclamation."""
     findings: list[str] = []
     for path in files:
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
+        text = safe_read_text(path)
+        if text is None:
             continue
         for ln, line in enumerate(text.splitlines(), start=1):
             if _is_ignored_line(line):

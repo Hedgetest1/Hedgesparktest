@@ -29,6 +29,7 @@ import pathlib
 import sys
 from collections import Counter, defaultdict
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 APP_ROOT = pathlib.Path(__file__).resolve().parent.parent / "app"
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
@@ -158,9 +159,12 @@ def _risk_of_try_body(body: list[ast.stmt]) -> str:
 
 
 def scan_file(path: pathlib.Path) -> list[Finding]:
+    _src = safe_read_text(path)
+    if _src is None:
+        return []
     try:
-        tree = ast.parse(path.read_text())
-    except Exception:
+        tree = ast.parse(_src)
+    except SyntaxError:
         return []
     findings: list[Finding] = []
     rel = path.relative_to(APP_ROOT.parent).as_posix()

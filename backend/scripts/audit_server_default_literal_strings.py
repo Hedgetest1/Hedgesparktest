@@ -30,6 +30,7 @@ import ast
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 REPO = Path(__file__).resolve().parents[1]
 MODELS = REPO / "app" / "models"
@@ -43,9 +44,8 @@ _SQL_FUNC_SHAPE = re.compile(r'^[a-z_][a-z0-9_]*\([^)]*\)$', re.IGNORECASE)
 
 def _scan_file(path: Path) -> list[tuple[int, str]]:
     findings: list[tuple[int, str]] = []
-    try:
-        src = path.read_text(encoding="utf-8")
-    except Exception:
+    src = safe_read_text(path)
+    if src is None:
         return findings
     if "server_default" not in src:
         return findings

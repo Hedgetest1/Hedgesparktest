@@ -65,6 +65,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 DASHBOARD = Path("/opt/wishspark/dashboard/src")
 COMPONENTS_DIR = DASHBOARD / "app" / "components"
@@ -109,9 +110,8 @@ def scan_file(path: Path) -> list[str]:
     if path.name in EXEMPT_FILES:
         return findings
 
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception:
+    text = safe_read_text(path)
+    if text is None:
         return findings
 
     if INLINE_EXEMPT.search(text):

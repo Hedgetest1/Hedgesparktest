@@ -44,6 +44,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 ROOT = Path(__file__).resolve().parents[1] / "app"
 WRITE_ALERT_RE = re.compile(r"\bwrite_alert\s*\(")
@@ -64,9 +65,8 @@ EXEMPT_FILES = {
 
 def scan_file(path: Path) -> tuple[bool, bool, bool]:
     """Return (writes_alerts, has_heal, has_opt_out)."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception:
+    text = safe_read_text(path)
+    if text is None:
         return (False, False, False)
     writes = bool(WRITE_ALERT_RE.search(text))
     if not writes:

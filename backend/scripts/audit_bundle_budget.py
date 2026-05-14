@@ -45,6 +45,7 @@ import os
 import pathlib
 import sys
 from _audit_telemetry_shim import emit, telemetered
+from _audit_io import safe_read_text
 
 DASHBOARD = pathlib.Path("/opt/wishspark/dashboard")
 BUDGET_FILE = DASHBOARD / "bundle-budget.json"

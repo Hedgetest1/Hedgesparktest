@@ -56,6 +56,7 @@ import json
 import pathlib
 import re
 import sys
+from _audit_io import safe_read_text
 
 try:
     from _audit_telemetry_shim import telemetered
@@ -109,9 +110,8 @@ def audit() -> int:
     for py_file in MODELS_DIR.rglob("*.py"):
         if py_file.name == "__init__.py":
             continue
-        try:
-            text = py_file.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        text = safe_read_text(py_file)
+        if text is None:
             continue
         for m in _COLUMN_RE.finditer(text):
             name = m.group("name")

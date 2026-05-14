@@ -42,6 +42,7 @@ import re
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 LANDING_PATH = REPO_ROOT / "dashboard" / "src" / "app" / "page.tsx"
@@ -150,7 +151,13 @@ def main(argv: list[str]) -> int:
         )
         return 2
 
-    landing_text = LANDING_PATH.read_text()
+    landing_text = safe_read_text(LANDING_PATH)
+    if landing_text is None:
+        print(
+            f"audit_landing_lite_shipped: {LANDING_PATH} disappeared",
+            file=sys.stderr,
+        )
+        return 2
     bullets = extract_lite_features(landing_text)
     if not bullets:
         print(

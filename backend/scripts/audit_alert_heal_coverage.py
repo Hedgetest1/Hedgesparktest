@@ -35,6 +35,7 @@ import ast
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
@@ -188,9 +189,8 @@ def _scan_write_alert_types(target: Path) -> dict[str, list[tuple[Path, int]]]:
     """
     out: dict[str, list[tuple[Path, int]]] = {}
     for pyfile in target.rglob("*.py"):
-        try:
-            source = pyfile.read_text(encoding="utf-8")
-        except Exception:
+        source = safe_read_text(pyfile)
+        if source is None:
             continue
         if "write_alert" not in source:
             continue
@@ -226,9 +226,8 @@ def _scan_heal_calls(target: Path) -> set[str]:
     or hard-listed inside _auto_resolve_prior_invariant body."""
     healed: set[str] = set()
     for pyfile in target.rglob("*.py"):
-        try:
-            source = pyfile.read_text(encoding="utf-8")
-        except Exception:
+        source = safe_read_text(pyfile)
+        if source is None:
             continue
         if not any(h in source for h in _HEAL_HELPER_NAMES):
             continue
@@ -278,9 +277,8 @@ def _scan_heal_comments(target: Path) -> dict[str, list[Path]]:
     comment annotates the call site within ±5 lines of write_alert."""
     out: dict[str, list[Path]] = {}
     for pyfile in target.rglob("*.py"):
-        try:
-            source = pyfile.read_text(encoding="utf-8")
-        except Exception:
+        source = safe_read_text(pyfile)
+        if source is None:
             continue
         if "write_alert" not in source or _HEAL_COMMENT_MARKER not in source:
             continue

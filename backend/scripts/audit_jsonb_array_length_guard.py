@@ -25,6 +25,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 BACKEND = Path("/opt/wishspark/backend")
 
@@ -61,10 +62,10 @@ _INLINE_CASE_RE = re.compile(
 def _scan_file(path: Path) -> list[str]:
     """Return list of finding strings for unguarded jsonb calls."""
     findings: list[str] = []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except Exception:
+    _raw = safe_read_text(path)
+    if _raw is None:
         return findings
+    lines = _raw.splitlines()
 
     full_text = "\n".join(lines)
 

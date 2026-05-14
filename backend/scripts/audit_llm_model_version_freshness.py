@@ -63,6 +63,7 @@ import re
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = REPO_ROOT / "app"
@@ -127,9 +128,8 @@ def _resolve_provider(model: str) -> str | None:
 
 def _scan_file(path: Path) -> list[tuple[int, str]]:
     findings: list[tuple[int, str]] = []
-    try:
-        src = path.read_text()
-    except Exception:
+    src = safe_read_text(path)
+    if src is None:
         return findings
 
     for i, line in enumerate(src.splitlines(), start=1):

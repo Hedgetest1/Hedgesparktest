@@ -52,6 +52,7 @@ from dataclasses import dataclass
 sys.path.insert(0, "/opt/wishspark/backend")
 
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 BACKEND_ROOT = pathlib.Path("/opt/wishspark/backend")
 BACKEND_API = BACKEND_ROOT / "app" / "api"

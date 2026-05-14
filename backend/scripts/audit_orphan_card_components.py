@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+from _audit_io import safe_read_text
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 COMPONENTS_DIR = REPO_ROOT / "dashboard" / "src" / "app" / "components"

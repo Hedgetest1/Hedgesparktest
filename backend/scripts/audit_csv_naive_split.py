@@ -46,6 +46,7 @@ import json
 import pathlib
 import re
 import sys
+from _audit_io import safe_read_text
 
 try:
     from _audit_telemetry_shim import telemetered
@@ -91,9 +92,8 @@ def audit() -> int:
     for ts_file in DASHBOARD_DIR.rglob("*.ts*"):
         if "node_modules" in ts_file.parts or ".next" in ts_file.parts:
             continue
-        try:
-            text = ts_file.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        text = safe_read_text(ts_file)
+        if text is None:
             continue
         if not _CSV_SIGNAL_RE.search(text):
             continue  # not a CSV handler

@@ -39,6 +39,8 @@ import re
 import sys
 from pathlib import Path
 
+from _audit_io import safe_read_text
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_APP = REPO_ROOT / "backend" / "app"
 
@@ -60,17 +62,16 @@ def main() -> int:
     findings: list[tuple[Path, int, str]] = []
     scanned = 0
     for path in BACKEND_APP.rglob("*.py"):
-        # TOCTOU defense: rglob is lazy and may yield a path that gets
-        # deleted between discovery and read (concurrent pytest fixtures
-        # do this — `test_audit_data_truth_gate.py` creates+deletes
-        # `_test_hardcoded_eur_DELETE_ME.py` in `app/services/`; the
-        # invariant_monitor running in parallel saw the file mid-test
-        # and crashed on read post-cleanup 2026-05-13). Skip silently;
-        # the next monitor cycle re-scans cleanly. Born from real prod
-        # crash, not theoretical defense.
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except (FileNotFoundError, PermissionError):
+        # TOCTOU defense via safe_read_text: rglob is lazy and may yield
+        # a path that gets deleted between discovery and read (concurrent
+        # pytest fixtures do this — `test_audit_data_truth_gate.py`
+        # creates+deletes `_test_hardcoded_eur_DELETE_ME.py` in
+        # `app/services/`; the invariant_monitor running in parallel saw
+        # the file mid-test and crashed on read post-cleanup 2026-05-13).
+        # safe_read_text returns None on the race; next monitor cycle
+        # re-scans cleanly.
+        text = safe_read_text(path)
+        if text is None:
             continue
         if "AS (" not in text:
             continue

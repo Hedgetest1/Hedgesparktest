@@ -43,6 +43,7 @@ import re
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import emit, telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DASHBOARD_SRC = REPO_ROOT / "dashboard" / "src"
@@ -97,9 +98,8 @@ _NAMED_EXPORT_PATTERNS = [
 
 def scan_exports(path: Path) -> list[str]:
     """Return names of exported PascalCase components + use* hooks."""
-    try:
-        text = path.read_text()
-    except (OSError, UnicodeDecodeError):
+    text = safe_read_text(path)
+    if text is None:
         return []
     names: set[str] = set()
     for pattern in _NAMED_EXPORT_PATTERNS:
@@ -120,9 +120,8 @@ def name_is_imported_anywhere(
     for f in all_files:
         if f == defining_path:
             continue
-        try:
-            text = f.read_text()
-        except (OSError, UnicodeDecodeError):
+        text = safe_read_text(f)
+        if text is None:
             continue
         # Only consider matches that look like import usage or JSX
         # usage (<ComponentName), not string literals or comments.

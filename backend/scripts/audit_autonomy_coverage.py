@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 BACKEND = Path("/opt/wishspark/backend")
 SCRIPTS_DIR = BACKEND / "scripts"
@@ -67,9 +68,8 @@ def has_fix_mode(path: Path) -> bool:
     # need its own --fix mode (it's a read-only reporter).
     if path.name == "audit_autonomy_coverage.py":
         return False
-    try:
-        text = path.read_text()
-    except OSError:
+    text = safe_read_text(path)
+    if text is None:
         return False
     # Strict heuristics: argparse add_argument("--fix") OR explicit
     # `"--fix" in argv` check. Mere docstring mentions don't count.
@@ -83,7 +83,9 @@ def has_fix_mode(path: Path) -> bool:
 def wired_in_preflight() -> dict[str, bool]:
     if not PREFLIGHT_SH.exists():
         return {}
-    text = PREFLIGHT_SH.read_text()
+    text = safe_read_text(PREFLIGHT_SH)
+    if text is None:
+        return {}
     wired: dict[str, bool] = {}
     for path in sorted(SCRIPTS_DIR.glob("audit_*.py")):
         name = path.name
@@ -95,7 +97,9 @@ def has_fix_in_preflight(audit_name: str) -> bool:
     """Check if preflight invokes the audit with --fix-supported flag."""
     if not PREFLIGHT_SH.exists():
         return False
-    text = PREFLIGHT_SH.read_text()
+    text = safe_read_text(PREFLIGHT_SH)
+    if text is None:
+        return False
     pattern = re.compile(rf'run_with_autofix\s+"[^"]*"\s+"{re.escape(audit_name)}"\s+--fix-supported')
     return bool(pattern.search(text))
 

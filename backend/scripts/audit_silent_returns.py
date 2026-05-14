@@ -46,6 +46,7 @@ import pathlib
 import sys
 from collections import Counter, defaultdict
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 APP_ROOT = pathlib.Path(__file__).resolve().parent.parent / "app"
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
@@ -169,9 +170,12 @@ class Finding:
 
 
 def scan_file(path: pathlib.Path, extra_guards: set[str] | None = None) -> list[Finding]:
+    _src = safe_read_text(path)
+    if _src is None:
+        return []
     try:
-        tree = ast.parse(path.read_text())
-    except Exception:
+        tree = ast.parse(_src)
+    except SyntaxError:
         return []
     findings: list[Finding] = []
     rel = path.relative_to(APP_ROOT.parent).as_posix()
@@ -223,9 +227,12 @@ def walk_app() -> list[Finding]:
         if rel in SELF_REFERENTIAL_FILES:
             continue
         py_paths.append(path)
+        _src = safe_read_text(path)
+        if _src is None:
+            continue
         try:
-            tree = ast.parse(path.read_text())
-        except Exception:
+            tree = ast.parse(_src)
+        except SyntaxError:
             continue
         discovered.update(_discover_guard_names_from_tree(tree))
     # Second pass: scan with the expanded guard set.

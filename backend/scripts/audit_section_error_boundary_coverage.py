@@ -32,6 +32,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 ROOT = Path(__file__).resolve().parents[2] / "dashboard" / "src" / "app"
 
@@ -63,9 +64,8 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
     anchors at the top of a file (e.g. `<section id="...">` at line
     45) commonly have their boundaries 200+ lines below at the
     inner-card level — a tight window produces false positives."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception:
+    text = safe_read_text(path)
+    if text is None:
         return []
     if not _SECTION_RE.search(text):
         return []

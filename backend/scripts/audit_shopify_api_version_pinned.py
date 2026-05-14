@@ -46,6 +46,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXT_GLOB = "shopify/extensions/*/shopify.extension.toml"
@@ -89,7 +90,9 @@ def _normalise_sdk_to_toml(sdk_spec: str) -> str | None:
 def _check_one_extension(toml_path: Path) -> list[str]:
     """Return a list of error strings for this extension. Empty = OK."""
     errors: list[str] = []
-    text = toml_path.read_text(encoding="utf-8")
+    text = safe_read_text(toml_path)
+    if text is None:
+        return [f"{toml_path}: file disappeared mid-scan"]
     m = API_VERSION_RE.search(text)
     if not m:
         return [f"{toml_path}: missing `api_version =` line"]

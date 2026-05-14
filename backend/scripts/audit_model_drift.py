@@ -29,6 +29,7 @@ sys.path.insert(0, "/opt/wishspark/backend")
 from sqlalchemy import inspect
 
 from app.core.database import Base, engine
+from _audit_io import safe_read_text
 
 # Walk app/models/ and import every module so Base.metadata is
 # populated with all declared tables — even models that haven't been
@@ -90,9 +91,8 @@ def _drift_age_hint(table_name: str) -> str | None:
     models_dir = pathlib.Path("/opt/wishspark/backend/app/models")
     candidate: pathlib.Path | None = None
     for py in models_dir.glob("*.py"):
-        try:
-            src = py.read_text()
-        except Exception:
+        src = safe_read_text(py)
+        if src is None:
             continue
         if f'__tablename__ = "{table_name}"' in src or f"__tablename__ = '{table_name}'" in src:
             candidate = py

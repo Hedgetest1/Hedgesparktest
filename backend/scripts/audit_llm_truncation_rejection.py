@@ -45,6 +45,7 @@ import re
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "app" / "services"
@@ -87,9 +88,8 @@ _VENDOR_SIGNATURES: list[tuple[re.Pattern, re.Pattern, re.Pattern, str]] = [
 def _scan_file(path: Path) -> list[str]:
     """Return list of violation descriptions."""
     findings: list[str] = []
-    try:
-        src = path.read_text()
-    except Exception:
+    src = safe_read_text(path)
+    if src is None:
         return findings
 
     for url_re, field_re, literal_re, vendor in _VENDOR_SIGNATURES:

@@ -38,6 +38,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 DASHBOARD_ROOT = pathlib.Path("/opt/wishspark/dashboard/src/app")
 SKIP_FILES = {"api-client.ts", "api-types.ts"}
@@ -79,9 +80,8 @@ class Finding:
 def scan_file(path: pathlib.Path) -> list[Finding]:
     if path.name in SKIP_FILES:
         return []
-    try:
-        text = path.read_text()
-    except Exception:
+    text = safe_read_text(path)
+    if text is None:
         return []
     findings: list[Finding] = []
     rel = path.relative_to(DASHBOARD_ROOT.parent.parent).as_posix()

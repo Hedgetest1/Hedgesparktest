@@ -36,6 +36,7 @@ import json
 import pathlib
 import re
 import sys
+from _audit_io import safe_read_text
 
 try:
     from _audit_telemetry_shim import telemetered
@@ -102,9 +103,8 @@ def _path_to_page_file(path: str) -> pathlib.Path | None:
 def audit() -> int:
     findings: list[dict] = []
     for py_file in BACKEND_API_DIR.rglob("*.py"):
-        try:
-            text = py_file.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        text = safe_read_text(py_file)
+        if text is None:
             continue
         for m in _REDIRECT_RE.finditer(text):
             path = m.group("path")

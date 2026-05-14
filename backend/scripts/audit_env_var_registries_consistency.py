@@ -36,6 +36,7 @@ import ast
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 REPO = Path(__file__).resolve().parents[1]
 APP = REPO / "app"
@@ -89,9 +90,8 @@ def collect_env_var_names_used(root: Path) -> set[str]:
     for py in root.rglob("*.py"):
         if "__pycache__" in py.parts:
             continue
-        try:
-            text = py.read_text()
-        except Exception:
+        text = safe_read_text(py)
+        if text is None:
             continue
         for pat in (pat_getenv, pat_env_get, pat_env_sub):
             used.update(pat.findall(text))

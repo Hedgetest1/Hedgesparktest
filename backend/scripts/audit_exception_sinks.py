@@ -33,6 +33,7 @@ import pathlib
 import sys
 from collections import defaultdict
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 APP_ROOT = pathlib.Path("/opt/wishspark/backend/app")
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
@@ -291,9 +292,8 @@ def handler_catches_base(handler: ast.ExceptHandler) -> bool:
 
 
 def audit_file(path: pathlib.Path) -> list[Finding]:
-    try:
-        src = path.read_text()
-    except Exception:
+    src = safe_read_text(path)
+    if src is None:
         return []
     try:
         tree = ast.parse(src)

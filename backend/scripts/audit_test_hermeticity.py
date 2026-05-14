@@ -40,6 +40,7 @@ import re
 import sys
 from dataclasses import dataclass
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 TESTS_DIR = pathlib.Path("/opt/wishspark/backend/tests")
 

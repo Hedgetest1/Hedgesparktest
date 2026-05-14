@@ -43,6 +43,7 @@ import ast
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "app" / "services"
@@ -150,9 +151,8 @@ def _file_parses_usage_struct(tree: ast.AST) -> bool:
 def _scan_file(path: Path) -> list[tuple[int, str]]:
     """Return list of (line_no, snippet) for violations in this file."""
     findings: list[tuple[int, str]] = []
-    try:
-        src = path.read_text()
-    except Exception:
+    src = safe_read_text(path)
+    if src is None:
         return findings
     try:
         tree = ast.parse(src, filename=str(path))

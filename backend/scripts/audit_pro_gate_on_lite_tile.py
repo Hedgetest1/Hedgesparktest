@@ -55,6 +55,7 @@ import json
 import pathlib
 import re
 import sys
+from _audit_io import safe_read_text
 
 try:
     from _audit_telemetry_shim import telemetered
@@ -87,9 +88,8 @@ def build_endpoint_gate_map() -> dict[str, str]:
     # Common router prefix patterns — extracted from `APIRouter(prefix="...")`.
     _PREFIX_RE = re.compile(r"""APIRouter\s*\(\s*(?:prefix\s*=\s*)?["'](?P<prefix>[^"']+)["']""")
     for py_file in BACKEND_API_DIR.rglob("*.py"):
-        try:
-            text = py_file.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        text = safe_read_text(py_file)
+        if text is None:
             continue
         prefix_match = _PREFIX_RE.search(text)
         prefix = prefix_match.group("prefix") if prefix_match else ""
@@ -120,9 +120,8 @@ def audit() -> int:
         return 1
 
     # Scan main dashboard page for component → isLiteFloor render context.
-    try:
-        page_text = APP_PAGE.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    page_text = safe_read_text(APP_PAGE)
+    if page_text is None:
         print(f"✗ cannot read {APP_PAGE}")
         return 1
 
@@ -131,9 +130,8 @@ def audit() -> int:
     # if it calls a Pro endpoint AND is rendered under isLiteFloor.
     components_dir = DASHBOARD_DIR / "components"
     for tsx in components_dir.rglob("*.tsx"):
-        try:
-            comp_text = tsx.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        comp_text = safe_read_text(tsx)
+        if comp_text is None:
             continue
         # Endpoints called by this component
         called_pro_paths = set()

@@ -22,6 +22,7 @@ sys.path.insert(0, "/opt/wishspark/backend")
 from sqlalchemy import inspect
 
 from app.core.database import engine
+from _audit_io import safe_read_text
 
 
 APP_ROOT = pathlib.Path("/opt/wishspark/backend/app")
@@ -67,9 +68,8 @@ def _strip_sql_comments(sql: str) -> str:
 
 
 def extract_sql_blocks(path: pathlib.Path) -> list[tuple[int, str]]:
-    try:
-        src = path.read_text()
-    except Exception:
+    src = safe_read_text(path)
+    if src is None:
         return []
     out = []
     for m in _SQL_CALL.finditer(src):

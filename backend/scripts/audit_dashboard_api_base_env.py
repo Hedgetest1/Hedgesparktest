@@ -23,6 +23,7 @@ import re
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DASHBOARD_SRC = REPO_ROOT / "dashboard" / "src"
@@ -53,9 +54,8 @@ PATTERN = PATTERNS[0]
 
 
 def scan_file(path: Path) -> list[tuple[int, str]]:
-    try:
-        text = path.read_text()
-    except (OSError, UnicodeDecodeError):
+    text = safe_read_text(path)
+    if text is None:
         return []
 
     findings: list[tuple[int, str]] = []

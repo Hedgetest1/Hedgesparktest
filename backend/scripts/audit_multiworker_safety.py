@@ -44,6 +44,7 @@ import pathlib
 import re
 import sys
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1] / "app"
@@ -190,7 +191,9 @@ def _extract_target_names(node: ast.AST) -> list[str]:
 
 def _scan_file(py: pathlib.Path) -> list[tuple[int, str, str]]:
     """Return list of (line, kind, message) hits for a single file."""
-    src = py.read_text(encoding="utf-8", errors="replace")
+    src = safe_read_text(py, errors="replace")
+    if src is None:
+        return []
     lines = src.splitlines()
     try:
         tree = ast.parse(src, filename=str(py))

@@ -44,6 +44,7 @@ import ast
 import pathlib
 import sys
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 APP_ROOT = BACKEND_ROOT / "app"
@@ -62,7 +63,10 @@ def _allowed_names() -> set[str]:
     that may allow it. Also handles ast.AugAssign (`x += y` at module
     level) and tuple-unpack assignments like `A, B = 1, 2`.
     """
-    tree = ast.parse(REDIS_MODULE.read_text(encoding="utf-8"))
+    _src = safe_read_text(REDIS_MODULE)
+    if _src is None:
+        return set()
+    tree = ast.parse(_src)
     names: set[str] = set()
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -99,8 +103,11 @@ def _find_bad_imports(allowed: set[str]) -> list[tuple[pathlib.Path, int, str]]:
     for py_file in APP_ROOT.rglob("*.py"):
         if py_file.samefile(REDIS_MODULE):
             continue
+        _src = safe_read_text(py_file)
+        if _src is None:
+            continue
         try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"))
+            tree = ast.parse(_src)
         except SyntaxError:
             continue
         for node in ast.walk(tree):

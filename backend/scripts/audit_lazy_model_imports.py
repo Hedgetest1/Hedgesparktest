@@ -33,6 +33,7 @@ import ast
 import os
 import pathlib
 import sys
+from _audit_io import safe_read_text
 
 
 REPO_ROOT = pathlib.Path("/opt/wishspark/backend")

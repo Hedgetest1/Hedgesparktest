@@ -65,6 +65,7 @@ from dataclasses import dataclass
 sys.path.insert(0, "/opt/wishspark/backend")
 
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 BACKEND_ROOT = pathlib.Path("/opt/wishspark/backend")
 BACKEND_API = BACKEND_ROOT / "app" / "api"
@@ -263,9 +264,8 @@ def _test_files() -> list[pathlib.Path]:
 
 def _has_test_reference(path: str, files: list[pathlib.Path]) -> bool:
     for f in files:
-        try:
-            txt = f.read_text(errors="ignore")
-        except Exception:
+        txt = safe_read_text(f)
+        if txt is None:
             continue
         if path in txt:
             return True
@@ -273,9 +273,8 @@ def _has_test_reference(path: str, files: list[pathlib.Path]) -> bool:
     if not needles:
         return False
     for f in files:
-        try:
-            txt = f.read_text(errors="ignore")
-        except Exception:
+        txt = safe_read_text(f)
+        if txt is None:
             continue
         if all(n in txt for n in needles if n):
             return True

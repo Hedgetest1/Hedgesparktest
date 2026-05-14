@@ -26,6 +26,7 @@ import re
 import sys
 from dataclasses import dataclass, asdict
 from pathlib import Path
+from _audit_io import safe_read_text
 from _audit_telemetry_shim import telemetered
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -141,11 +142,10 @@ def _scan_files() -> list[tuple[Path, list[str]]]:
     for py in sorted(APP_DIR.rglob("*.py")):
         if "__pycache__" in str(py):
             continue
-        try:
-            lines = py.read_text().splitlines()
-            results.append((py, lines))
-        except Exception:
+        text = safe_read_text(py)
+        if text is None:
             continue
+        results.append((py, text.splitlines()))
     return results
 
 
@@ -656,11 +656,10 @@ def _scan_frontend_files() -> list[tuple[Path, list[str]]]:
             p = str(f)
             if "node_modules" in p or "_generated" in p or ".next" in p:
                 continue
-            try:
-                lines = f.read_text().splitlines()
-                results.append((f, lines))
-            except Exception:
+            text = safe_read_text(f)
+            if text is None:
                 continue
+            results.append((f, text.splitlines()))
     return results
 
 

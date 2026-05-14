@@ -33,6 +33,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 REPO = Path(__file__).resolve().parents[1]
 APP = REPO / "app"
@@ -75,9 +76,8 @@ def find_env_reads(env_name: str) -> list[Path]:
     for py in APP.rglob("*.py"):
         if "__pycache__" in py.parts:
             continue
-        try:
-            text = py.read_text()
-        except Exception:
+        text = safe_read_text(py)
+        if text is None:
             continue
         if pat.search(text):
             hits.append(py.relative_to(REPO))

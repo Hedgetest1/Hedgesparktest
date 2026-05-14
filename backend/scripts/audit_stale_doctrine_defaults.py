@@ -39,6 +39,7 @@ import os
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 APP_ROOT = BACKEND_ROOT / "app"
@@ -69,9 +70,12 @@ def _auto_doctrine_keys() -> set[str]:
     extra: set[str] = set()
     if not p.is_file():
         return extra
+    _src = safe_read_text(p)
+    if _src is None:
+        return extra
     try:
-        tree = ast.parse(p.read_text())
-    except Exception:
+        tree = ast.parse(_src)
+    except SyntaxError:
         return extra
     for stmt in tree.body:
         targets: list[ast.expr] = []

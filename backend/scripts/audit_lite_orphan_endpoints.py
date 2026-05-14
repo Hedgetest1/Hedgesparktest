@@ -42,6 +42,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 BACKEND_API = Path("/opt/wishspark/backend/app/api")
 DASHBOARD_SRC = Path("/opt/wishspark/dashboard/src")
@@ -69,9 +70,8 @@ def find_endpoints() -> list[tuple[str, Path, str]]:
     endpoint. full_route includes the router prefix when present."""
     out: list[tuple[str, Path, str]] = []
     for py in BACKEND_API.rglob("*.py"):
-        try:
-            text = py.read_text()
-        except Exception:
+        text = safe_read_text(py)
+        if text is None:
             continue
         # Find router prefix: APIRouter(prefix="/orders", ...)
         m = re.search(r'APIRouter\s*\([^)]*prefix\s*=\s*["\']([^"\']+)["\']', text)
@@ -209,9 +209,8 @@ def is_under_tier_pro_gate(route: str) -> bool:
     block. Approximation only — does naive brace-balance counting."""
     if not PAGE_TSX.exists():
         return False
-    try:
-        text = PAGE_TSX.read_text()
-    except Exception:
+    text = safe_read_text(PAGE_TSX)
+    if text is None:
         return False
     lines = text.split("\n")
 

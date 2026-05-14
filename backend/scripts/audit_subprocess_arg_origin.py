@@ -40,6 +40,7 @@ import sys
 # pattern that preflight.sh enforces for all wired audits.
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 
 REPO_BACKEND = pathlib.Path("/opt/wishspark/backend")
@@ -105,9 +106,8 @@ def _has_annotation_nearby(
 def _audit_file(path: pathlib.Path) -> list[tuple[int, str]]:
     """Return list of (line_no, snippet) for unannotated variable-arg
     subprocess calls."""
-    try:
-        src = path.read_text()
-    except Exception:
+    src = safe_read_text(path)
+    if src is None:
         return []
     try:
         tree = ast.parse(src, filename=str(path))

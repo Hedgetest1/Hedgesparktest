@@ -44,6 +44,7 @@ import sys
 from pathlib import Path
 
 from _audit_telemetry_shim import emit, telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DASHBOARD_SRC = REPO_ROOT / "dashboard" / "src" / "app"
@@ -93,7 +94,9 @@ def _has_accessible_name(attrs: str, body_after_svg: str) -> bool:
 
 def find_icon_only_buttons(file: Path) -> list[tuple[int, str]]:
     """Yield (line_no, snippet) for icon-only buttons missing aria-label."""
-    text = file.read_text(encoding="utf-8", errors="ignore")
+    text = safe_read_text(file)
+    if text is None:
+        return []
     findings: list[tuple[int, str]] = []
     for match in _BUTTON_BLOCK.finditer(text):
         attrs, body = match.group(1), match.group(2)
@@ -154,7 +157,9 @@ _CLASSNAME_VALUE = re.compile(
 
 def find_low_contrast_small_text(file: Path) -> list[tuple[int, str]]:
     """Yield (line_no, classes) for slate-500/600 + small-font className."""
-    text = file.read_text(encoding="utf-8", errors="ignore")
+    text = safe_read_text(file)
+    if text is None:
+        return []
     findings: list[tuple[int, str]] = []
     for m in _CLASSNAME_VALUE.finditer(text):
         classes = m.group(1) or m.group(2) or m.group(3) or ""
@@ -184,7 +189,9 @@ _INLINE_LOW_HEX = re.compile(
 
 def find_inline_low_contrast(file: Path) -> list[tuple[int, str]]:
     """Yield (line_no, snippet) for inline-style slate-500/600 hex usage."""
-    text = file.read_text(encoding="utf-8", errors="ignore")
+    text = safe_read_text(file)
+    if text is None:
+        return []
     findings: list[tuple[int, str]] = []
     for m in _INLINE_LOW_HEX.finditer(text):
         line_no = text[: m.start()].count("\n") + 1

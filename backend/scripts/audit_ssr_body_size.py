@@ -44,6 +44,7 @@ import pathlib
 import re
 import sys
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 SERVER_APP = pathlib.Path("/opt/wishspark/dashboard/.next/server/app")
 
@@ -88,9 +89,8 @@ def main() -> int:
         if html_path.name in SKIP_NAMES:
             skipped += 1
             continue
-        try:
-            text = html_path.read_text(errors="ignore")
-        except OSError:
+        text = safe_read_text(html_path)
+        if text is None:
             continue
         size = _body_size(text)
         if size is None:

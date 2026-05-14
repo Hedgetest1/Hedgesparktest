@@ -25,6 +25,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 # Default Heroicons-outline path snippets per id-prefix. The auto-fix
 # inserts a generic clock icon when the missing id has no specific
@@ -77,12 +78,17 @@ def collect_section_ids() -> set[str]:
     for path in [PAGE_TSX, *COMPONENTS_DIR.glob("Lite*.tsx")]:
         if not path.exists():
             continue
-        ids.update(SECTION_RE.findall(path.read_text()))
+        text = safe_read_text(path)
+        if text is None:
+            continue
+        ids.update(SECTION_RE.findall(text))
     return ids
 
 
 def collect_nav_ids() -> tuple[set[str], set[str]]:
-    src = SIDEBAR_TSX.read_text()
+    src = safe_read_text(SIDEBAR_TSX)
+    if src is None:
+        return (set(), set())
     # NAV_ITEMS_LITE block bracketed by `const NAV_ITEMS_LITE` and
     # closing `];` on its own line (or paragraph break before
     # SECTION_TO_NAV). We use a simple substring slice between markers.
@@ -146,7 +152,10 @@ def auto_fix(missing_in_nav: set[str], missing_in_map: set[str]) -> int:
     """Apply deterministic fixes to Sidebar.tsx for missing entries.
     Returns 0 if all fixes applied successfully, non-zero otherwise.
     """
-    src = SIDEBAR_TSX.read_text()
+    src = safe_read_text(SIDEBAR_TSX)
+    if src is None:
+        print("auto-fix: SIDEBAR_TSX missing — abort", file=sys.stderr)
+        return 2
     changed = False
 
     # ── Fix NAV_ITEMS_LITE: insert missing entries at scroll-order slot ──

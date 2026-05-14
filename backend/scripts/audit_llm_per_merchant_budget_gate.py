@@ -39,6 +39,7 @@ import re
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "app" / "services"
@@ -100,9 +101,8 @@ def _has_merchant_scoped_function(tree: ast.AST) -> tuple[bool, list[str]]:
 
 def _scan_file(path: Path) -> list[str]:
     findings: list[str] = []
-    try:
-        src = path.read_text()
-    except Exception:
+    src = safe_read_text(path)
+    if src is None:
         return findings
     if not _file_has_llm_call(src):
         return findings

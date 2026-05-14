@@ -56,6 +56,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 DASHBOARD = Path("/opt/wishspark/dashboard/src")
 COMPONENTS_DIR = DASHBOARD / "app" / "components"
@@ -143,9 +144,8 @@ def iter_user_visible_lines(content: str):
 
 def scan_file(path: Path) -> list[tuple[int, str]]:
     findings: list[tuple[int, str]] = []
-    try:
-        content = path.read_text()
-    except OSError:
+    content = safe_read_text(path)
+    if content is None:
         return findings
 
     for idx, line in iter_user_visible_lines(content):
@@ -185,7 +185,9 @@ def autofix_file(path: Path) -> tuple[int, list[tuple[int, str]]]:
     for the value-literal rewrite. Other patterns + non-eligible files
     surface as human-needed.
     """
-    content = path.read_text()
+    content = safe_read_text(path)
+    if content is None:
+        return (0, [])
     auto_fixed = 0
     is_safe_to_autofix = bool(SAFE_CONSUMER_CONTRACT_RE.search(content))
 

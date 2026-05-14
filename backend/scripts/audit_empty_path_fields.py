@@ -30,6 +30,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -86,9 +87,8 @@ def _function_dict_returns(fn: ast.FunctionDef) -> list[tuple[int, frozenset[str
 
 def _scan_file(path: Path) -> list[Finding]:
     findings: list[Finding] = []
-    try:
-        source = path.read_text()
-    except Exception:
+    source = safe_read_text(path)
+    if source is None:
         return findings
     try:
         tree = ast.parse(source)

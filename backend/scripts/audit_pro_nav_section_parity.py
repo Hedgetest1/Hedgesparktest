@@ -33,6 +33,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 DASHBOARD = Path("/opt/wishspark/dashboard/src")
 PAGE_TSX = DASHBOARD / "app" / "app" / "page.tsx"
@@ -115,9 +116,8 @@ def collect_pro_section_ids() -> set[str]:
         if d.exists():
             targets.extend(d.glob("*.tsx"))
     for path in targets:
-        try:
-            text = path.read_text()
-        except OSError:
+        text = safe_read_text(path)
+        if text is None:
             continue
         ids.update(PRO_SECTION_RE.findall(text))
         # Also pick up shared bare-section ids (funnel/nudges/scroll)
@@ -138,7 +138,10 @@ def collect_pro_nav_ids() -> tuple[set[str], dict[str, dict[str, str | bool]]]:
     """Return (set of nav ids, per-entry attrs dict).
     Per-entry attrs: { "<id>": { "href": "/app/scale" | "", "scaleOnly": True } }
     """
-    src = SIDEBAR_TSX.read_text()
+    src = safe_read_text(SIDEBAR_TSX)
+    if src is None:
+        sys.stderr.write("ERROR: Sidebar.tsx — file disappeared.\n")
+        return set(), {}
     nav_start = src.find("const NAV_ITEMS_PRO")
     if nav_start == -1:
         sys.stderr.write("ERROR: Sidebar.tsx — NAV_ITEMS_PRO not found.\n")

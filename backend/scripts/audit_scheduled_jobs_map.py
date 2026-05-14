@@ -27,6 +27,7 @@ import re
 import sys
 from pathlib import Path
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = BACKEND_ROOT.parent
@@ -169,7 +170,10 @@ def main(argv: list[str]) -> int:
         print(f"audit_scheduled_jobs_map: docs map not found — {DOC_MAP}")
         return 2
 
-    doc_text = DOC_MAP.read_text()
+    doc_text = safe_read_text(DOC_MAP)
+    if doc_text is None:
+        print(f"audit_scheduled_jobs_map: docs map disappeared — {DOC_MAP}")
+        return 2
 
     defined_map = _extract_defined_fns(AGENT_WORKER)
     documented_map = _extract_documented_fns(doc_text)

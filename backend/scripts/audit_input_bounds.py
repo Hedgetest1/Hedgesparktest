@@ -34,6 +34,7 @@ import pathlib
 import sys
 from collections import Counter, defaultdict
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 APP_ROOT = pathlib.Path(__file__).resolve().parent.parent / "app"
 SCAN_DIRS = [APP_ROOT / "api", APP_ROOT / "models"]
@@ -185,9 +186,12 @@ def scan_class(cls: ast.ClassDef, rel: str, scan_all: bool = False) -> list[Find
 
 
 def scan_file(path: pathlib.Path, scan_all: bool = False) -> list[Finding]:
+    _src = safe_read_text(path)
+    if _src is None:
+        return []
     try:
-        tree = ast.parse(path.read_text())
-    except Exception:
+        tree = ast.parse(_src)
+    except SyntaxError:
         return []
     rel = path.relative_to(APP_ROOT.parent).as_posix()
     findings: list[Finding] = []

@@ -52,6 +52,7 @@ import json
 import pathlib
 import re
 import sys
+from _audit_io import safe_read_text
 
 try:
     from _audit_telemetry_shim import telemetered
@@ -113,9 +114,8 @@ def audit() -> int:
     findings: list[dict] = []
     for d in SCAN_DIRS:
         for py_file in d.rglob("*.py"):
-            try:
-                text = py_file.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            text = safe_read_text(py_file)
+            if text is None:
                 continue
             lines = text.splitlines()
             for m in _SCOPE_CONST_RE.finditer(text):

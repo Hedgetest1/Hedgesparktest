@@ -32,6 +32,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from _audit_io import safe_read_text
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
@@ -111,9 +112,8 @@ def _scan_file(path: Path) -> tuple[bool, bool, list[int]]:
     if EVERY `db.query(Merchant)` / `FROM merchants` site in the
     file is within 8 lines of a per-tenant filter, treat the whole
     file as per-tenant."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception:
+    text = safe_read_text(path)
+    if text is None:
         return (False, False, [])
     lines = text.split("\n")
     raw_hits: list[int] = []

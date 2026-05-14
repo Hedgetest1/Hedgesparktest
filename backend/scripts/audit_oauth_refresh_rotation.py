@@ -55,6 +55,7 @@ import json
 import pathlib
 import re
 import sys
+from _audit_io import safe_read_text
 
 try:
     from _audit_telemetry_shim import telemetered
@@ -105,9 +106,8 @@ def audit() -> int:
         for py_file in d.rglob("*.py"):
             if py_file.name in _EXEMPT_FILES:
                 continue
-            try:
-                text = py_file.read_text(encoding="utf-8", errors="replace")
-            except OSError:
+            text = safe_read_text(py_file)
+            if text is None:
                 continue
             if not _REFRESH_STORE_RE.search(text):
                 continue  # not a refresh-token-storing file

@@ -84,6 +84,7 @@ from dataclasses import dataclass
 sys.path.insert(0, "/opt/wishspark/backend")
 
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 DASHBOARD_SRC = pathlib.Path("/opt/wishspark/dashboard/src")
 BACKEND_API = pathlib.Path("/opt/wishspark/backend/app/api")

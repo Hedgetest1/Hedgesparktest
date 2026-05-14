@@ -45,6 +45,7 @@ import pathlib
 import re
 import sys
 from _audit_telemetry_shim import telemetered
+from _audit_io import safe_read_text
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 APP_ROOT = REPO_ROOT / "app"
@@ -71,9 +72,8 @@ _OPT_OUT_PATTERN = re.compile(r"#\s*llm_pii_guard_audit:\s*synthetic-only", re.I
 
 
 def scan_file(path: pathlib.Path) -> dict:
-    try:
-        text = path.read_text()
-    except (OSError, UnicodeDecodeError):
+    text = safe_read_text(path)
+    if text is None:
         return {"error": "unreadable"}
 
     has_llm_call = any(p.search(text) for p in _LLM_URL_PATTERNS)

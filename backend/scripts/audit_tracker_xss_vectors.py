@@ -47,6 +47,7 @@ import json
 import pathlib
 import re
 import sys
+from _audit_io import safe_read_text
 
 try:
     from _audit_telemetry_shim import telemetered
@@ -128,9 +129,8 @@ def _is_in_string_literal(text: str, pos: int) -> bool:
 def audit() -> int:
     findings: list[dict] = []
     for js_file in TRACKER_DIR.glob("*.js"):
-        try:
-            text = js_file.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+        text = safe_read_text(js_file)
+        if text is None:
             continue
         # Strict patterns
         for pattern, msg in _DANGEROUS_PATTERNS:
