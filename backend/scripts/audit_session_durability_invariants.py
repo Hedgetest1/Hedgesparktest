@@ -38,6 +38,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+from _audit_io import safe_read_text
 from _audit_telemetry_shim import telemetered
 
 REPO = Path(__file__).resolve().parents[2]
@@ -51,7 +53,13 @@ DASHBOARD = REPO / "dashboard"
 
 
 def _parse_python(path: Path) -> ast.Module:
-    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    src = safe_read_text(path)
+    if src is None:
+        # File raced away (concurrent test fixture). Return empty module
+        # so callers' invariant lookups fail closed (label not present →
+        # treated as missing). The next monitor cycle re-scans cleanly.
+        return ast.parse("")
+    return ast.parse(src, filename=str(path))
 
 
 def _find_function(module: ast.Module, name: str) -> ast.FunctionDef | None:
@@ -183,7 +191,9 @@ def ts_contains(
     """
     if not path.exists():
         return False, f"missing file: {path.relative_to(REPO)}"
-    raw = path.read_text(encoding="utf-8")
+    raw = safe_read_text(path)
+    if raw is None:
+        return False, f"file disappeared mid-scan: {path.relative_to(REPO)}"
     src = _strip_comments(raw) if strip_comments else raw
     if re.search(pattern, src):
         suffix = " (in live code, not a comment)" if strip_comments else ""

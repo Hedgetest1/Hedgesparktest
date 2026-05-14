@@ -41,6 +41,8 @@ import re
 import sys
 from pathlib import Path
 
+from _audit_io import safe_read_text
+
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO / "scripts"
 PREFLIGHT_SH = REPO / "scripts" / "preflight.sh"
@@ -136,9 +138,8 @@ def parse_preflight_audits() -> list[str]:
 
 def classify_audit(script_path: Path) -> str:
     """Return one of 'commit-stage', 'state-based', or 'opt-out'."""
-    try:
-        text = script_path.read_text()
-    except Exception:
+    text = safe_read_text(script_path)
+    if text is None:
         return "state-based"  # default eligible if unreadable
     if _OPT_OUT_TAG.search(text):
         return "opt-out"

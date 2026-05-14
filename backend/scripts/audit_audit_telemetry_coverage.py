@@ -33,6 +33,8 @@ import ast
 import sys
 from pathlib import Path
 
+from _audit_io import safe_read_text
+
 # Add backend/ to sys.path so we can import the canonical list from
 # app.core.wired_audits (single source of truth shared with
 # invariant_monitor._check_silent_audits).
@@ -54,9 +56,12 @@ def _imports_shim(py_path: Path) -> bool:
     Accepts both `import _audit_telemetry_shim` and
     `from _audit_telemetry_shim import emit` at any scope (module-level
     OR function-level inside main()). AST-based — regex-robust."""
+    src = safe_read_text(py_path)
+    if src is None:
+        return False
     try:
-        tree = ast.parse(py_path.read_text(), filename=str(py_path))
-    except Exception:
+        tree = ast.parse(src, filename=str(py_path))
+    except SyntaxError:
         return False
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

@@ -58,11 +58,15 @@ def _is_model_import(node: ast.ImportFrom) -> bool:
 def _scan_file(path: pathlib.Path) -> list[tuple[int, str]]:
     """Return [(lineno, snippet)] for every model import inside a
     function body (NOT at module level)."""
+    src = safe_read_text(path)
+    if src is None:
+        return []
     try:
-        tree = ast.parse(path.read_text(), filename=str(path))
-    except Exception:
+        tree = ast.parse(src, filename=str(path))
+    except SyntaxError:
         return []
 
+    src_lines = src.splitlines()
     findings: list[tuple[int, str]] = []
 
     class FunctionImportVisitor(ast.NodeVisitor):
@@ -83,11 +87,13 @@ def _scan_file(path: pathlib.Path) -> list[tuple[int, str]]:
             if self.fn_depth > 0 and _is_model_import(node):
                 imported = ", ".join(a.name for a in node.names)
                 snippet = f"from {node.module} import {imported}"
-                # Check for exemption comment on same line
-                try:
-                    line = path.read_text().splitlines()[node.lineno - 1]
-                except Exception:
-                    line = ""
+                # Check for exemption comment on same line. Re-uses
+                # the cached `src_lines` from the enclosing scope —
+                # avoids a second TOCTOU-prone read on each visit.
+                line = (
+                    src_lines[node.lineno - 1]
+                    if 0 <= node.lineno - 1 < len(src_lines) else ""
+                )
                 if "audit_lazy_model_imports: ok" in line:
                     return
                 findings.append((node.lineno, snippet))

@@ -39,6 +39,8 @@ import re
 import sys
 from pathlib import Path
 
+from _audit_io import safe_read_text
+
 REPO = Path(__file__).resolve().parents[1]
 DATABASE_PY = REPO / "app" / "core" / "database.py"
 ECOSYSTEM = REPO.parent / "ecosystem.config.js"
@@ -71,10 +73,7 @@ def _detect_pgbouncer(env_text: str) -> bool:
 
 
 def _read(path: Path) -> str:
-    try:
-        return path.read_text()
-    except Exception:
-        return ""
+    return safe_read_text(path) or ""
 
 
 def _extract_db_pool_defaults(text: str) -> tuple[int | None, int | None]:

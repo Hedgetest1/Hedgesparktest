@@ -36,6 +36,8 @@ import ast
 import sys
 from pathlib import Path
 
+from _audit_io import safe_read_text
+
 REPO = Path(__file__).resolve().parents[1]
 TARGET = REPO / "app" / "services" / "telegram_agent.py"
 FUNCTION_NAME = "build_daily_digest"
@@ -50,7 +52,9 @@ FORBIDDEN_NAMES = {
 
 
 def _function_source(path: Path, fn: str) -> str:
-    src = path.read_text(encoding="utf-8")
+    src = safe_read_text(path)
+    if src is None:
+        return ""
     tree = ast.parse(src)
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == fn:

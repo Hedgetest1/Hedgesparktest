@@ -58,6 +58,8 @@ import pathlib
 import re
 import sys
 from dataclasses import dataclass
+
+from _audit_io import safe_read_text
 from _audit_telemetry_shim import telemetered
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -167,9 +169,8 @@ def _function_has_opt_out(func: ast.FunctionDef, src_lines: list[str]) -> bool:
 
 def scan_file(path: pathlib.Path) -> list[Finding]:
     findings: list[Finding] = []
-    try:
-        src = path.read_text()
-    except (OSError, UnicodeDecodeError):
+    src = safe_read_text(path)
+    if src is None:
         return findings
 
     src_lines = src.splitlines()

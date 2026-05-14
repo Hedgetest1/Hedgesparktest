@@ -148,9 +148,12 @@ def _load_coverage(cov_path: pathlib.Path) -> dict[str, set[int]] | None:
     Returns None if the file is missing/unparseable."""
     if not cov_path.is_file():
         return None
+    text = safe_read_text(cov_path)
+    if text is None:
+        return None
     try:
-        data = json.loads(cov_path.read_text())
-    except Exception:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
         return None
     out: dict[str, set[int]] = {}
     for rel, entry in data.get("files", {}).items():

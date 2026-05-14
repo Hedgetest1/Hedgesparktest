@@ -34,6 +34,8 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+
+from _audit_io import safe_read_text
 from _audit_telemetry_shim import telemetered
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,10 +54,7 @@ WORKER_FILES = {
 
 
 def _read(p: Path) -> str | None:
-    try:
-        return p.read_text()
-    except Exception:
-        return None
+    return safe_read_text(p)
 
 
 def _check_sentry_init_module(failures: list[str]) -> None:

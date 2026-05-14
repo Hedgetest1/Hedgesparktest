@@ -141,9 +141,72 @@ def _build_parent_map(tree: ast.AST) -> dict[int, ast.AST]:
     return parents
 
 
+def _path_typed_function_params(tree: ast.Module) -> set[str]:
+    """Return parameter names of any function whose annotation is a
+    `Path` / `pathlib.Path`. Born 2026-05-14 v3 sharpening: a function
+    like `def scan_file(path: Path)` called from `for py in rglob(...):
+    scan_file(py)` exhibits the same race — the parameter `path` is
+    a glob-yielded value across the call boundary. The v2 walker
+    missed this because it tracked names only within their lexical
+    binding scope; v3 adds the cross-function parameter bridge.
+
+    Conservative — we only catch parameters explicitly typed as Path.
+    Untyped parameters (`def scan_file(path):`) are not flagged because
+    we can't infer intent, and they're a minority pattern in
+    `scripts/`. Authors should annotate. The escape valve remains:
+    explicit `try / except (FileNotFoundError, PermissionError)`.
+    """
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for arg in node.args.args + node.args.kwonlyargs:
+            if arg.annotation is None:
+                continue
+            ann = arg.annotation
+            # `path: Path` — annotation is Name("Path")
+            if isinstance(ann, ast.Name) and ann.id == "Path":
+                bound.add(arg.arg)
+            # `path: pathlib.Path` — annotation is Attribute(pathlib).attr=Path
+            elif (
+                isinstance(ann, ast.Attribute)
+                and ann.attr == "Path"
+                and isinstance(ann.value, ast.Name)
+                and ann.value.id == "pathlib"
+            ):
+                bound.add(arg.arg)
+            # `path: Path | None` / `path: Optional[Path]` — recurse
+            # into BinOp/Subscript to catch the union-with-None pattern
+            else:
+                for sub in ast.walk(ann):
+                    if isinstance(sub, ast.Name) and sub.id == "Path":
+                        bound.add(arg.arg)
+                        break
+                    if (
+                        isinstance(sub, ast.Attribute)
+                        and sub.attr == "Path"
+                        and isinstance(sub.value, ast.Name)
+                        and sub.value.id == "pathlib"
+                    ):
+                        bound.add(arg.arg)
+                        break
+    return bound
+
+
 def _scan_module(text: str, filename: str) -> list[str]:
     """Return list of human-readable findings for vulnerable call sites
-    in this module. Empty list = file is clean."""
+    in this module. Empty list = file is clean.
+
+    Two complementary sources of "race-prone path receivers":
+      (1) Names directly bound by `for X in <obj>.glob/rglob(...)`.
+      (2) Function parameters annotated as `Path` — captures the
+          inter-procedural pattern `for py in rglob(): scan_file(py)`
+          where the parameter `path: Path` inside scan_file IS a
+          glob-yielded path even though the lexical binding is via
+          parameter, not for-loop. Born v3 sharpening 2026-05-14
+          after `audit_stale_doctrine_defaults.scan_file` slipped
+          past v2.
+    """
     try:
         tree = ast.parse(text, filename=filename)
     except SyntaxError as exc:
@@ -151,8 +214,10 @@ def _scan_module(text: str, filename: str) -> list[str]:
 
     parents = _build_parent_map(tree)
     glob_bound = _names_bound_by_glob_loops(tree)
-    if not glob_bound:
-        return []  # nothing iterated via glob — bug class doesn't apply
+    path_param_bound = _path_typed_function_params(tree)
+    race_prone_names = glob_bound | path_param_bound
+    if not race_prone_names:
+        return []  # nothing iterated via glob and no Path-typed params
 
     findings: list[str] = []
     for node in ast.walk(tree):
@@ -164,12 +229,13 @@ def _scan_module(text: str, filename: str) -> list[str]:
         if func.attr not in _READ_METHODS:
             continue
         # Only consider calls where receiver is a Name bound by a glob
-        # loop (the bug class). Receiver could be deeper (e.g.
+        # loop OR a Path-typed function parameter. Receiver could be
+        # deeper (e.g.
         # `f.read_text().splitlines()`) but the read_text call is the
         # one that races; we look at THIS call's receiver.
         if not isinstance(func.value, ast.Name):
             continue
-        if func.value.id not in glob_bound:
+        if func.value.id not in race_prone_names:
             continue
         # Site found. Is it covered?
         if _is_in_race_handler(node, parents):

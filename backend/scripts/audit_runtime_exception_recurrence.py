@@ -41,6 +41,8 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from _audit_io import safe_read_text
+
 PM2_LOG = Path("/root/.pm2/logs/wishspark-backend-error.log")
 
 _BUG_CLASSES = (
@@ -88,7 +90,11 @@ def _scan(log_path: Path, hours: int) -> tuple[Counter, dict[str, list[str]]]:
     samples: dict[str, list[str]] = {}
     last_ts_in_window = True
     try:
-        # Read tail of log — large logs handled by scanning from end if needed
+        # Read tail of log — large logs handled by scanning from end if needed.
+        # Explicit (FileNotFoundError, PermissionError) below is required by
+        # audit_audit_io_safety: `with log_path.open(...)` is a race-prone
+        # receiver pattern (log_path is a Path-typed parameter that may be
+        # log-rotated by pm2-logrotate mid-scan).
         with log_path.open("r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 # Track window via timestamps when present
@@ -110,7 +116,8 @@ def _scan(log_path: Path, hours: int) -> tuple[Counter, dict[str, list[str]]]:
                         # Trim line for readability
                         samples[klass].append(line.strip()[:240])
                     break
-    except Exception:
+    except (FileNotFoundError, PermissionError):
+        # Log rotated mid-scan. Best-effort: return what we counted so far.
         pass
     return counts, samples
 

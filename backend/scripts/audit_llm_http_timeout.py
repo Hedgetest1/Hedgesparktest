@@ -84,10 +84,12 @@ def _scan_file(path: Path) -> list[tuple[int, str]]:
     library's post-to-LLM without relying on import-name matching.
     """
     findings: list[tuple[int, str]] = []
+    src = safe_read_text(path)
+    if src is None:
+        return findings
     try:
-        src = path.read_text()
         tree = ast.parse(src, filename=str(path))
-    except Exception:
+    except SyntaxError:
         return findings
 
     _HTTP_METHODS = {"post", "get", "put", "delete", "patch", "request", "send"}

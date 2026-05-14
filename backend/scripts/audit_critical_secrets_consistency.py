@@ -49,7 +49,10 @@ def parse_critical_secrets(path: Path) -> list[str]:
                     out.append(first.value)
         return out
 
-    tree = ast.parse(path.read_text(), filename=str(path))
+    src = safe_read_text(path)
+    if src is None:
+        return []
+    tree = ast.parse(src, filename=str(path))
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for tgt in node.targets:

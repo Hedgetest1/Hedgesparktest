@@ -161,8 +161,11 @@ class _Visitor(ast.NodeVisitor):
 
 
 def scan_file(path: Path) -> list[tuple[str, int, str, str]]:
+    src = safe_read_text(path)
+    if src is None:
+        return []
     try:
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(src, filename=str(path))
     except SyntaxError:
         return []
 

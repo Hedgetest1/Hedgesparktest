@@ -73,7 +73,10 @@ def _extract_documented_fns(md_text: str) -> dict[str, int]:
 def _extract_defined_fns(py_path: Path) -> dict[str, int]:
     """Return {fn_name: line_number} for every `_run_*` function so drift
     output can point at `app/workers/agent_worker.py:NN`."""
-    tree = ast.parse(py_path.read_text(), filename=str(py_path))
+    src = safe_read_text(py_path)
+    if src is None:
+        return {}
+    tree = ast.parse(src, filename=str(py_path))
     out: dict[str, int] = {}
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -87,7 +90,10 @@ def _extract_fn_doclines(py_path: Path) -> dict[str, str]:
     return {fn_name: first_line_of_docstring}. Lets the --verify-doclines
     flag detect stale documentation where the code docstring no longer
     matches what the reality map claims the function does."""
-    tree = ast.parse(py_path.read_text(), filename=str(py_path))
+    src = safe_read_text(py_path)
+    if src is None:
+        return {}
+    tree = ast.parse(src, filename=str(py_path))
     out: dict[str, str] = {}
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
