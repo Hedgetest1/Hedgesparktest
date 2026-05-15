@@ -1217,12 +1217,15 @@ deep-dive reference that would bloat CLAUDE.md.
 6. `git log -8` — what shipped recently (cross-check vs snapshot).
 7. The latest `project_session_*_shipped.md` (top of MEMORY index).
 
-📌 `project_beta_launch_master_plan.md` is **strategic background
-from 2026-04-14** (Opzione A beta-launch, Lite/Pro partition, legal
-Italia). It is NOT "the current work" — that label drifted stale by
-a month. Read it for strategic context only; the actionable next
-step lives in SESSION_STATE.md (#3 above). When SESSION_STATE and
-this pointer disagree, SESSION_STATE wins.
+📌 `archive/project_beta_launch_master_plan.md` is **archived
+strategic background from 2026-04-14** (Opzione A beta-launch,
+Lite/Pro partition, legal Italia) — ARCHIVED 2026-05-15, ~90%
+superseded by live memos (`project_current_partition_state`,
+`project_legal_entity_blocked_features`). Read only for historical
+context. Its one unshipped item (the `<ExplainerDrawer>` UX
+primitive) was extracted to `project_explainer_drawer_decision_
+pending.md` (founder-domain keep/kill). The actionable next step
+always lives in SESSION_STATE.md (#3 above) — SESSION_STATE wins.
 
 ---
 
