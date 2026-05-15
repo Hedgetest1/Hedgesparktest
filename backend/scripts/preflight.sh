@@ -909,6 +909,18 @@ else
     tail -20 /tmp/preflight_lazy_db.log
 fi
 
+# Class-wide sibling of the above: ANY cache-first app/api handler
+# that pins a Depends(get_db|get_read_db) conn across a cache hit is
+# the identical c≈64 pool-timeout-cliff bug. Fix = Depends(
+# get_lazy_read_db). 6 RED siblings swept 2026-05-15b → must stay 0.
+step "Cache-first conn-pin class audit (audit_cachefirst_conn_pin.py)"
+if "$PY" scripts/audit_cachefirst_conn_pin.py > /tmp/preflight_cfcp.log 2>&1; then
+    ok "0 cache-first handlers pin a Depends DB connection (class clean)"
+else
+    bad "cache-first conn-pin sibling(s) reintroduced — see /tmp/preflight_cfcp.log"
+    tail -20 /tmp/preflight_cfcp.log
+fi
+
 # ---------------------------------------------------------------------------
 # 2d. Alembic drift gate — the hard gate. Any drift between Base.metadata
 # and the live DB schema blocks the commit. This is the top-1-world bar:

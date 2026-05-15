@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db, get_read_db
+from app.core.database import get_db, get_read_db, get_lazy_read_db
 from app.core.deps import require_merchant_session
 from app.core.redis_client import cache_delete, cache_get, cache_set
 
@@ -234,7 +234,7 @@ def _build_rows(
 @router.get("/merchant/inventory/kpis", response_model=InventoryKpisOut)
 def get_inventory_kpis(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_read_db),
+    db: Session = Depends(get_lazy_read_db),  # lazy: 0 conns on cache hit
 ) -> dict:
     cache_key = _KPI_CACHE_KEY.format(shop=shop)
     cached = cache_get(cache_key)

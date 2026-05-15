@@ -226,6 +226,14 @@ def client(db):
     # Read replica routes use the same hermetic transactional session in tests
     # so SAVEPOINT isolation holds across both primary and read paths.
     fastapi_app.dependency_overrides[get_read_db] = _override_get_db
+    # get_lazy_read_db (2026-05-15b cache-first conn-pin class fix) MUST
+    # also map to the hermetic session — its proxy would otherwise open
+    # a REAL ReadSession, escaping SAVEPOINT isolation and breaking
+    # data visibility for the 6 swept handlers' tests. The lazy-on-
+    # first-use behaviour is a production pool optimisation; in tests
+    # the direct hermetic session is the correct (and required) form.
+    from app.core.database import get_lazy_read_db
+    fastapi_app.dependency_overrides[get_lazy_read_db] = _override_get_db
 
     # Use httpx sync client via ASGITransport for TestClient-like behavior.
     # Wrapped to move per-request cookies= onto the client instance,

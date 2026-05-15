@@ -184,6 +184,72 @@ def get_read_db():
 
 
 # ---------------------------------------------------------------------------
+# Lazy read-session dependency — defers the pooled-connection checkout
+# to FIRST USE.
+#
+# Born 2026-05-15b. FastAPI resolves Depends() BEFORE the handler body,
+# so `Depends(get_read_db)` checks a connection out of the pool for the
+# WHOLE request even on a cache-first handler whose warm path returns
+# with zero DB work. Behind PgBouncer's GLOBAL ceiling (shared by all
+# uvicorn workers) that pinned-but-unused conn was the c≈64
+# pool-timeout cliff (proven on /dashboard/overview, fixed 8291d0d via
+# an inline lazy session). A class-wide audit
+# (audit_cachefirst_conn_pin.py) found 6 IDENTICAL siblings; this
+# dependency is the reusable class-level fix: a handler that returns a
+# cache hit never touches the proxy → no connection is ever checked
+# out. Correct-by-construction for any future cache-first handler.
+#
+# _LazyReadSession proxies attribute access (db.query/execute/add/
+# commit/...) to a real ReadSession opened on first access. Dunder
+# context-manager use (`with db:`) is delegated explicitly since
+# __getattr__ does not intercept dunders — the 6 swept handlers use
+# only regular attribute access (audited), the dunder delegation is
+# defensive insurance for future call sites.
+# ---------------------------------------------------------------------------
+class _LazyReadSession:
+    __slots__ = ("_real",)
+
+    def __init__(self) -> None:
+        self._real = None
+
+    def _ensure(self):
+        if self._real is None:
+            self._real = ReadSession()
+        return self._real
+
+    def __getattr__(self, name):
+        # __getattr__ only fires for names NOT found normally, so
+        # _real / _ensure / close_if_opened never route here.
+        return getattr(self._ensure(), name)
+
+    def __enter__(self):
+        return self._ensure().__enter__()
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc, tb)
+        return False
+
+    def close_if_opened(self) -> None:
+        if self._real is not None:
+            self._real.close()
+            self._real = None
+
+
+def get_lazy_read_db():
+    """FastAPI dependency — yields a lazy read session that checks out
+    a pooled connection ONLY on first use. A cache-first handler that
+    returns a Redis hit without touching `db` holds ZERO DB
+    connections for the whole request (the c≈64 cliff fix, class
+    form). Same read-only contract as get_read_db."""
+    holder = _LazyReadSession()
+    try:
+        yield holder
+    finally:
+        holder.close_if_opened()
+
+
+# ---------------------------------------------------------------------------
 # Request-scoped session dependency
 #
 # Use this in FastAPI routes via Depends(get_db).  The session is guaranteed

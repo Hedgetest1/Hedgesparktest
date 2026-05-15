@@ -37,7 +37,7 @@ from sqlalchemy import and_, desc, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db, get_read_db
+from app.core.database import get_db, get_read_db, get_lazy_read_db
 from app.core.deps import require_merchant_session
 from app.core.redis_client import cache_delete, cache_get, cache_set
 from app.models.merchant_saved_report import MerchantSavedReport
@@ -954,7 +954,7 @@ def execute_report(
     response: Response,
     report_id: int = Path(..., ge=1),
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_read_db),
+    db: Session = Depends(get_lazy_read_db),  # lazy: 0 conns on cache hit
 ) -> dict:
     """Execute a saved report → chart + table payload.
 

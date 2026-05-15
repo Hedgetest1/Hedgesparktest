@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_read_db
+from app.core.database import get_read_db, get_lazy_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 
 log = logging.getLogger(__name__)
@@ -151,7 +151,7 @@ class ProductConversionsResponse(BaseModel):
 )
 def get_orders_summary(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_read_db),
+    db: Session = Depends(get_lazy_read_db),  # lazy: 0 conns on cache hit
 ):
     """
     Return real revenue summary from shop_orders.
@@ -258,7 +258,7 @@ def _top_products_by_revenue(db: Session, shop: str, days: int, limit: int = 5) 
 )
 def get_daily_revenue(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_read_db),
+    db: Session = Depends(get_lazy_read_db),  # lazy: 0 conns on cache hit
     days: int = Query(default=7, ge=1, le=30),
 ):
     """
@@ -514,7 +514,7 @@ def _build_empty_conversions_response(days: int, currency: str) -> dict:
 )
 def get_product_conversions(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_read_db),
+    db: Session = Depends(get_lazy_read_db),  # lazy: 0 conns on cache hit
     days: int = Query(default=7, ge=1, le=90),
 ):
     """
