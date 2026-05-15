@@ -120,7 +120,14 @@ def write_audit_log(
     db.add(entry)
     db.flush()
 
+    # Persist the new chain head BOTH to Redis (fast read path) and to
+    # the DB singleton anchor (defense-in-depth: attacker who wipes
+    # audit_log + Redis would still have to wipe the anchor row, which
+    # leaves observable tampering signatures). DB write happens inside
+    # the same pg_advisory_xact_lock as the audit row insert so the
+    # anchor and the chain stay consistent under concurrent writers.
     _store_chain_head(chain_hash)
+    _store_chain_head_db_anchor(db, chain_hash)
     return entry
 
 
@@ -245,6 +252,69 @@ def _store_chain_head(chain_hash: str) -> None:
         log.warning("audit: _store_chain_head failed: %s", exc)
 
 
+def _store_chain_head_db_anchor(db: Session, chain_hash: str) -> None:
+    """Persist the chain head to the DB singleton anchor (defense-in-depth).
+
+    Called inside write_audit_log under pg_advisory_xact_lock so the anchor
+    update is serialised with the audit row insert and the Redis store.
+
+    The anchor table is a single row with id=1 (enforced by CHECK
+    constraint). On every audit write we UPSERT — revision_counter is
+    incremented atomically so a future race detector can spot
+    read-modify-write inconsistencies.
+
+    Best-effort: a DB-side anchor failure does NOT abort the audit row
+    insert (the row is already in the same tx; rolling back would lose
+    the audit entry, which is worse than a stale anchor). Failure is
+    surfaced via record_silent_return so monitoring can detect drift.
+    """
+    from sqlalchemy import text as _sql_text
+    from app.core.silent_fallback import record_silent_return
+    try:
+        db.execute(
+            _sql_text(
+                """
+                INSERT INTO audit_chain_anchor (id, chain_head, updated_at, revision_counter)
+                VALUES (1, :chain_head, now(), 1)
+                ON CONFLICT (id) DO UPDATE
+                  SET chain_head = EXCLUDED.chain_head,
+                      updated_at = now(),
+                      revision_counter = audit_chain_anchor.revision_counter + 1
+                """
+            ),
+            {"chain_head": chain_hash},
+        )
+    except Exception as exc:
+        record_silent_return("audit.chain_head_db_anchor_store")
+        log.warning("audit: _store_chain_head_db_anchor failed: %s", exc)
+
+
+def get_chain_head_db_anchor(db: Session) -> str | None:
+    """Read the DB singleton anchor chain_head. Used by verification
+    + tampering detection. Returns None on DB error (caller decides
+    whether to alert)."""
+    from sqlalchemy import text as _sql_text
+    from app.core.silent_fallback import record_silent_return
+    try:
+        # Variable name is deliberately specific (`anchor_row`, not `row`).
+        # audit_silent_returns.py auto-discovers guard names from
+        # `if <name> is None: record_silent_return(...)` patterns and
+        # applies them GLOBALLY — naming this `row` would poison every
+        # benign `if row is None: return` across the codebase into a
+        # false "bare silent fallback" classification.
+        anchor_row = db.execute(
+            _sql_text("SELECT chain_head FROM audit_chain_anchor WHERE id = 1")
+        ).fetchone()
+        if anchor_row is None:
+            record_silent_return("audit.chain_head_db_anchor_missing")
+            return None
+        return str(anchor_row[0])
+    except Exception as exc:
+        record_silent_return("audit.chain_head_db_anchor_read")
+        log.warning("audit: get_chain_head_db_anchor failed: %s", exc)
+        return None
+
+
 def get_chain_head() -> str | None:
     """Public accessor for the current chain head (used by verification
     + compliance synthesizer)."""
@@ -297,6 +367,12 @@ def verify_audit_log_chain(
         "legacy_rows": 0,
         "violations": [],
         "head_matches_redis": None,
+        # DB-side singleton anchor (born 2026-05-15). Closes the
+        # "attacker wipes Redis + audit_log" threat model — Redis
+        # cross-check alone returns None on wipe (treated as "no
+        # anchor"); the DB anchor row persists across that attack.
+        "head_matches_db_anchor": None,
+        "db_anchor_present": None,
     }
 
     try:
@@ -372,6 +448,25 @@ def verify_audit_log_chain(
     redis_head = get_chain_head()
     if redis_head and last_chain_hash:
         report["head_matches_redis"] = redis_head == last_chain_hash
+
+    # Cross-check the DB-side singleton anchor. This is the defense
+    # that survives Redis wipe. Tampering signatures:
+    #   - db_anchor_present=False → catastrophic (anchor table dropped
+    #     or row deleted); operator should investigate immediately.
+    #   - head_matches_db_anchor=False → audit_log was mutated or a
+    #     row was deleted after the anchor was last updated.
+    db_anchor = get_chain_head_db_anchor(db)
+    if db_anchor is not None:
+        report["db_anchor_present"] = True
+        if last_chain_hash:
+            report["head_matches_db_anchor"] = db_anchor == last_chain_hash
+        elif report["chained_rows"] == 0 and report["legacy_rows"] == 0:
+            # Empty audit_log but anchor exists: either freshly seeded
+            # (genesis) OR full table wipe. Genesis is the seed value;
+            # any other anchor value with an empty table is tampering.
+            report["head_matches_db_anchor"] = db_anchor == _GENESIS_HASH
+    else:
+        report["db_anchor_present"] = False
 
     return report
 
@@ -468,6 +563,60 @@ def enforce_chain_integrity(db: Session) -> dict[str, Any]:
             )
         except Exception as exc:
             log.warning("audit: tampering alert write failed: %s", exc)
+
+    # DB-side anchor cross-check (born 2026-05-15). Separate CRITICAL
+    # alert when the DB anchor disagrees with the computed chain head,
+    # OR when the anchor row is missing entirely (anchor table dropped /
+    # row deleted by a non-audit path).
+    db_anchor_present = result.get("db_anchor_present")
+    db_anchor_matches = result.get("head_matches_db_anchor")
+    if db_anchor_present is False:
+        try:
+            write_alert(
+                db=db,
+                alert_type="audit_log_tampering",
+                source="audit_chain_db_anchor:missing",
+                severity="critical",
+                summary="Audit chain DB anchor row missing",
+                detail={
+                    "subclass": "db_anchor_missing",
+                    "message": (
+                        "audit_chain_anchor row id=1 not found. This is the "
+                        "DB-side defense against simultaneous audit_log + "
+                        "Redis wipe — its absence indicates either the "
+                        "anchor table was dropped or the singleton row was "
+                        "deleted by a non-audit path. Investigate "
+                        "immediately: an attacker with DB write access has "
+                        "removed the tamper-detection anchor."
+                    ),
+                },
+            )
+        except Exception as exc:
+            log.warning("audit: db_anchor_missing alert write failed: %s", exc)
+    elif db_anchor_matches is False:
+        try:
+            write_alert(
+                db=db,
+                alert_type="audit_log_tampering",
+                source="audit_chain_db_anchor:mismatch",
+                severity="critical",
+                summary="Audit chain DB anchor mismatch — tampering signature",
+                detail={
+                    "subclass": "db_anchor_mismatch",
+                    "message": (
+                        "The DB-side audit_chain_anchor disagrees with the "
+                        "computed chain head from audit_log. Tampering "
+                        "signature: row(s) were mutated/deleted by a "
+                        "non-audit path, OR audit_log was wiped and a fake "
+                        "chain reconstructed from genesis (in which case "
+                        "the anchor still holds the pre-wipe head). "
+                        "Investigate diff between anchor.chain_head and "
+                        "last audit_log row's metadata_json._chain.self."
+                    ),
+                },
+            )
+        except Exception as exc:
+            log.warning("audit: db_anchor_mismatch alert write failed: %s", exc)
 
     # Report still includes the raw violations so operators can see them.
     result["quarantined_count"] = len(quarantined)

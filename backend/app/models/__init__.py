@@ -7,6 +7,7 @@ from app.models.active_nudge import ActiveNudge
 from app.models.ad_spend import AdConnection, AdSpendDaily
 from app.models.agency import Agency, AgencyClient
 from app.models.analytics_event import AnalyticsEvent
+from app.models.audit_chain_anchor import AuditChainAnchor
 from app.models.audit_log import AuditLog
 from app.models.autonomous_action import AutonomousAction
 from app.models.bi_saved_query import BiSavedQuery
@@ -79,6 +80,7 @@ __all__ = [
     "Agency",
     "AgencyClient",
     "AnalyticsEvent",
+    "AuditChainAnchor",
     "AuditLog",
     "AutonomousAction",
     "BiSavedQuery",
