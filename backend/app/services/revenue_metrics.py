@@ -161,6 +161,46 @@ def invalidate_shop_currency_cache(shop_domain: str) -> None:
         record_silent_return("revenue_metrics.currency_cache.invalidate.exception")
 
 
+# Per-shop warning rate-limiter. The hot-path WARNING sites in
+# get_shop_aov (no orders / bad AOV) fired on every dashboard paint
+# under burst load — surfaced by 2026-05-14 10k load test as sync
+# log I/O dominating request latency on no-order shops. The fix
+# is structural: first warning per (shop, currency, class) emits,
+# subsequent calls within the TTL window silenced to DEBUG. Operators
+# still see the condition once per hour per shop; production is no
+# longer flooded.
+#
+# Fail-OPEN: on Redis miss or exception, we emit the warning. Better
+# noisy than silent — the rate-limiter is an optimisation, not a
+# correctness mechanism.
+_WARN_RATELIMIT_PREFIX = "hs:warn:rev_metrics"
+_WARN_RATELIMIT_TTL_SECONDS = 3600  # 1h — operators see one signal per shop per hour
+
+
+def _should_emit_warning(rate_key: str) -> bool:
+    """Return True the first time this rate_key is seen within the TTL
+    window. Idempotent SETNX semantics. Best-effort: any Redis failure
+    falls through to True (emit) so signal is never silently dropped.
+
+    rate_key shape: hs:warn:rev_metrics:{class}:{shop_domain}:{currency_or_any}
+    """
+    if not _cache_enabled():
+        return True
+    from app.core.silent_fallback import record_silent_return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            record_silent_return("revenue_metrics.warn_ratelimit.no_client")
+            return True
+        # SET NX EX: atomic "set-if-not-exists with TTL". Returns truthy
+        # only when we won the race (first emitter in window).
+        return bool(rc.set(rate_key, b"1", ex=_WARN_RATELIMIT_TTL_SECONDS, nx=True))
+    except Exception:
+        record_silent_return("revenue_metrics.warn_ratelimit.exception")
+        return True
+
+
 def get_shop_currency(db: Session, shop_domain: str) -> str | None:
     """
     Return the shop's primary currency.
@@ -397,20 +437,37 @@ def get_shop_aov(
 
         row = result.fetchone()
         if row is None or row[0] is None:
-            log.warning(
-                "revenue_metrics: no orders found for shop=%s currency=%s — "
-                "using fallback AOV=%.2f",
-                shop_domain, currency or "any", FALLBACK_AOV,
-            )
+            rk = f"{_WARN_RATELIMIT_PREFIX}:no_orders:{shop_domain}:{currency or 'any'}"
+            if _should_emit_warning(rk):
+                log.warning(
+                    "revenue_metrics: no orders found for shop=%s currency=%s — "
+                    "using fallback AOV=%.2f",
+                    shop_domain, currency or "any", FALLBACK_AOV,
+                )
+            else:
+                log.debug(
+                    "revenue_metrics: no orders found for shop=%s currency=%s "
+                    "(rate-limited, see WARNING within last hour) — "
+                    "using fallback AOV=%.2f",
+                    shop_domain, currency or "any", FALLBACK_AOV,
+                )
             return FALLBACK_AOV
 
         aov = float(row[0])
         if aov <= 0:
-            log.warning(
-                "revenue_metrics: computed AOV=%.2f <= 0 for shop=%s currency=%s — "
-                "using fallback AOV=%.2f",
-                aov, shop_domain, currency or "any", FALLBACK_AOV,
-            )
+            rk = f"{_WARN_RATELIMIT_PREFIX}:bad_aov:{shop_domain}:{currency or 'any'}"
+            if _should_emit_warning(rk):
+                log.warning(
+                    "revenue_metrics: computed AOV=%.2f <= 0 for shop=%s currency=%s — "
+                    "using fallback AOV=%.2f",
+                    aov, shop_domain, currency or "any", FALLBACK_AOV,
+                )
+            else:
+                log.debug(
+                    "revenue_metrics: computed AOV=%.2f <= 0 for shop=%s currency=%s "
+                    "(rate-limited) — using fallback AOV=%.2f",
+                    aov, shop_domain, currency or "any", FALLBACK_AOV,
+                )
             return FALLBACK_AOV
 
         log.debug(
