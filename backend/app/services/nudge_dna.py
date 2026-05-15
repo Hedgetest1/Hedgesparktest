@@ -227,6 +227,53 @@ def extract_patterns(
     if not rows:
         return _empty_dna(shop_domain, window_days)
 
+    # Batch-fetch purchase sessions for ALL impression visitors in one query.
+    # Previously this loop did 1 SELECT per impression (up to 20k queries on
+    # a busy shop). The N+1 was the known bottleneck flagged in
+    # project_post_2026_05_14_audit_pending.md.
+    #
+    # Strategy: collect distinct visitor_ids + the min/max impression ts,
+    # fetch every purchase for those visitors in [min_ts, max_ts + 48h], then
+    # do per-impression matching in memory. O(N+M) instead of O(N*1-query).
+    visitor_ids: set[str] = set()
+    min_ts = None
+    max_ts = None
+    for row in rows:
+        vid, row_ts = row[0], row[1]
+        if vid:
+            visitor_ids.add(vid)
+        if row_ts:
+            if min_ts is None or row_ts < min_ts:
+                min_ts = row_ts
+            if max_ts is None or row_ts > max_ts:
+                max_ts = row_ts
+
+    purchases_by_visitor: dict[str, list] = defaultdict(list)
+    if visitor_ids and min_ts is not None and max_ts is not None:
+        try:
+            purchase_rows = db.execute(
+                sql_text(
+                    """
+                    SELECT visitor_id, confirmed_at
+                    FROM visitor_purchase_sessions
+                    WHERE shop_domain = :shop
+                      AND visitor_id = ANY(:vids)
+                      AND confirmed_at BETWEEN :lo AND :hi
+                    """
+                ),
+                {
+                    "shop": shop_domain,
+                    "vids": list(visitor_ids),
+                    "lo": min_ts,
+                    "hi": max_ts + timedelta(hours=48),
+                },
+            ).fetchall()
+            for vid, confirmed in purchase_rows:
+                if vid and confirmed is not None:
+                    purchases_by_visitor[vid].append(confirmed)
+        except Exception as exc:
+            log.warning("nudge_dna: batch purchase lookup failed: %s", exc)
+
     # Build per-variant stats
     variants: dict[str, VariantStats] = {}
 
@@ -267,29 +314,14 @@ def extract_patterns(
 
         stats.impressions += 1
 
-        # Was there a purchase within 48h of this impression?
-        try:
-            hit = db.execute(
-                sql_text(
-                    """
-                    SELECT 1 FROM visitor_purchase_sessions
-                    WHERE shop_domain = :shop
-                      AND visitor_id = :vid
-                      AND confirmed_at BETWEEN :lo AND :hi
-                    LIMIT 1
-                    """
-                ),
-                {
-                    "shop": shop_domain,
-                    "vid": visitor_id,
-                    "lo": ts,
-                    "hi": ts + timedelta(hours=48),
-                },
-            ).fetchone()
-            if hit is not None:
+        # Per-impression conversion check — purely in-memory match against
+        # the batched purchase set. Conversion = a purchase by this
+        # visitor in [ts, ts + 48h].
+        hi = ts + timedelta(hours=48)
+        for confirmed in purchases_by_visitor.get(visitor_id, ()):
+            if ts <= confirmed <= hi:
                 stats.conversions += 1
-        except Exception as exc:
-            log.warning("nudge_dna: conversion lookup failed: %s", exc)
+                break
 
     if not variants:
         return _empty_dna(shop_domain, window_days)
