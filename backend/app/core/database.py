@@ -74,11 +74,19 @@ elif "sslmode=" in (DATABASE_URL or ""):
 # higher when intentionally provisioning Postgres for >200 conn).
 #
 # pool_timeout=30     — seconds to wait for a free connection before raising
-# pool_pre_ping=True  — issues a lightweight SELECT 1 before handing out each
-#                       connection; stale/broken connections are dropped and
-#                       replaced rather than causing cryptic mid-request failures
-# pool_recycle=1800   — recycle connections every 30 minutes; prevents
-#                       server-side idle-connection kills from reaching FastAPI
+# pool_pre_ping        — DROPPED 2026-05-15b (TIER_2-rigor, founder-approved
+#                       lever b). An isolated bench showed pre_ping costs
+#                       ~0.1ms (0.9 vs 0.8ms c=1; 12.7 vs 9.8ms c=16) —
+#                       negligible — but it adds a per-checkout PgBouncer
+#                       round-trip. Liveness is now purely time-based via
+#                       a TIGHTENED pool_recycle (below), which is the
+#                       correct mechanism behind PgBouncer transaction mode.
+# pool_recycle=240     — recycle connections every 4 min. MUST stay below
+#                       PgBouncer server_idle_timeout=600s: without
+#                       pre_ping, a pooled conn whose PgBouncer-side server
+#                       conn was idle-killed at 600s would otherwise be
+#                       handed out dead (mid-request 500) if recycle were
+#                       still 1800. 240 << 600 closes that window.
 #
 # With PgBouncer in transaction mode the pool_size here can be reduced to
 # 2-3 since PgBouncer owns the real connection pool.
@@ -91,8 +99,7 @@ engine = create_engine(
     pool_size=POOL_SIZE,
     max_overflow=POOL_MAX_OVERFLOW,
     pool_timeout=30,
-    pool_pre_ping=True,
-    pool_recycle=1800,
+    pool_recycle=240,  # < PgBouncer server_idle_timeout=600 (pre_ping dropped)
     connect_args=_connect_args,
 )
 
@@ -146,8 +153,7 @@ if DATABASE_READ_URL:
         pool_size=READ_POOL_SIZE,
         max_overflow=READ_POOL_MAX_OVERFLOW,
         pool_timeout=30,
-        pool_pre_ping=True,
-        pool_recycle=1800,
+        pool_recycle=240,  # < PgBouncer server_idle_timeout=600 (pre_ping dropped)
         connect_args=_read_connect_args,
     )
     ReadSession = sessionmaker(

@@ -76,6 +76,19 @@ _SESS_NO_MERCHANT = "no_merchant"
 _SESS_SV_EXPIRED = "sv_expired"
 _SESS_NEEDS_DB = "needs_db"  # msv cache miss + no db (middleware fast-path only)
 
+# Auth msv-validation cache TTL. This is a FAIL-SAFE backstop, NOT the
+# primary invalidation mechanism: sv-bump / billing-change / uninstall
+# all EXPLICITLY rc.delete() this key (billing.py:520,
+# billing_sync.py:195, webhooks.py:377/562) so a forced-logout takes
+# effect immediately in the normal path. The TTL only bounds the
+# window if an explicit delete ever races a Redis blip. Raised
+# 30s→180s (2026-05-15b, TIER_2, founder-approved): every auth-cache
+# miss is a per-request DB Merchant query (conn#1 of the c≈64
+# pool-timeout cliff); a 6× longer horizon cuts auth-cold DB pressure
+# ~6× under realistic traffic. 180 (not 300) keeps the worst-case
+# fail-safe-failure window bounded to 3 min.
+_MSV_CACHE_TTL_SEC = 180
+
 
 def _resolve_session_identity(
     request: Request, db: "Session | None",
@@ -119,8 +132,8 @@ def _resolve_session_identity(
     token_sv = payload.get("sv", 0)
 
     # Existence + session_version gate via Redis cache. Stable on the
-    # 30s-cache horizon (uninstall + sv bump invalidate the key
-    # explicitly). Cache hit eliminates the per-request DB query that
+    # _MSV_CACHE_TTL_SEC horizon (uninstall + sv bump invalidate the
+    # key explicitly). Cache hit eliminates the per-request DB query that
     # was the auth-path bottleneck under load (1000-merchant test
     # 2026-05-04 surfaced 68% PoolTimeout even with dashboard cache
     # pre-warmed). Born 2026-05-04 (Item 7-bis Stage 2: 10k readiness).
@@ -169,7 +182,7 @@ def _resolve_session_identity(
         }
         if rc is not None:
             try:
-                rc.setex(cache_key, 30, json.dumps(cached_validation))
+                rc.setex(cache_key, _MSV_CACHE_TTL_SEC, json.dumps(cached_validation))
             except Exception:
                 pass  # SILENT-EXCEPT-OK: redis write best-effort; next request will repopulate
 
