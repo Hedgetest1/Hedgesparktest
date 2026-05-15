@@ -1098,6 +1098,9 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:rl:track_purchase:{ip}:{shop}` | Storefront purchase tracker rate-limit counter (60s window, fail-open per tracker doctrine) | 60s |
 | `hs:warn:rev_metrics:no_orders:{shop}:{currency_or_any}` | revenue_metrics WARNING rate-limit — "no orders found" fallback path per (shop, currency); SETNX EX, first emitter logs WARNING, subsequent DEBUG. Fail-open. Born 2026-05-15 from §12 10k load test surfacing sync log I/O dominating latency on no-order shops | 1h |
 | `hs:warn:rev_metrics:bad_aov:{shop}:{currency_or_any}` | revenue_metrics WARNING rate-limit — "computed AOV <=0" fallback path per (shop, currency); same SETNX EX pattern as no_orders | 1h |
+| `hs:warn:rev_metrics:currency_primary:{shop}` | revenue_metrics WARNING rate-limit — `get_shop_currency` primary_currency lookup exception; born 2026-05-15 from Agent independent audit of revenue_metrics rate-limit sprint, surfaced 3 missed sibling sites on same hot-path | 1h |
+| `hs:warn:rev_metrics:currency_fallback:{shop}` | revenue_metrics WARNING rate-limit — `get_shop_currency` MODE() fallback lookup exception; same hot-path as `currency_primary` | 1h |
+| `hs:warn:rev_metrics:timezone_iana:{shop}` | revenue_metrics WARNING rate-limit — `get_shop_timezone` iana_timezone lookup exception; called per dashboard paint by aggregation + forecast | 1h |
 
 Curated list — backend uses ~150 prefixes total; rest tracked in
 owning modules. Verified by `audit_claude_md_redis_keys.py`

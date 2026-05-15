@@ -225,7 +225,13 @@ def get_shop_currency(db: Session, shop_domain: str) -> str | None:
             _cache_set(shop_domain, currency)
             return currency
     except Exception as exc:
-        log.warning("revenue_metrics: primary_currency lookup failed for shop=%s: %s", shop_domain, exc)
+        # Same hot-path-flood concern as get_shop_aov: get_shop_currency is
+        # called on every dashboard paint. A persistent DB exception (e.g.,
+        # shop with corrupted primary_currency column) would emit WARNING
+        # on every paint. Rate-limit per-shop.
+        rk = f"{_WARN_RATELIMIT_PREFIX}:currency_primary:{shop_domain}"
+        if _should_emit_warning(rk):
+            log.warning("revenue_metrics: primary_currency lookup failed for shop=%s: %s", shop_domain, exc)
 
     # Fallback: derive from order history (pre-migration merchants)
     try:
@@ -245,10 +251,12 @@ def get_shop_currency(db: Session, shop_domain: str) -> str | None:
             return currency
         return None
     except Exception as exc:
-        log.warning(
-            "revenue_metrics: failed to resolve currency for shop=%s: %s",
-            shop_domain, exc,
-        )
+        rk = f"{_WARN_RATELIMIT_PREFIX}:currency_fallback:{shop_domain}"
+        if _should_emit_warning(rk):
+            log.warning(
+                "revenue_metrics: failed to resolve currency for shop=%s: %s",
+                shop_domain, exc,
+            )
         return None
 
 
@@ -318,7 +326,12 @@ def get_shop_timezone(db: Session, shop_domain: str) -> str:
             _tz_cache_set(shop_domain, tz)
             return tz
     except Exception as exc:
-        log.warning("revenue_metrics: iana_timezone lookup failed for shop=%s: %s", shop_domain, exc)
+        # Same per-paint flood concern: get_shop_timezone is called on
+        # every dashboard paint by aggregation queries + forecast service.
+        # Persistent DB exception on a shop would flood logs.
+        rk = f"{_WARN_RATELIMIT_PREFIX}:timezone_iana:{shop_domain}"
+        if _should_emit_warning(rk):
+            log.warning("revenue_metrics: iana_timezone lookup failed for shop=%s: %s", shop_domain, exc)
     # Don't cache the UTC fallback — we want to re-probe in case the
     # merchant's timezone lands after a reinstall.
     return "UTC"

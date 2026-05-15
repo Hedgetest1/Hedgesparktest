@@ -140,3 +140,92 @@ def test_get_shop_aov_distinct_shops_each_emit_warning(_enable_cache, db):
         shop_b_warns = [c for c in mock_warn.call_args_list if shop_b in str(c.args)]
         assert len(shop_a_warns) == 1
         assert len(shop_b_warns) == 1
+
+
+# ---------------------------------------------------------------------------
+# Sibling sites surfaced by Agent independent audit 2026-05-15:
+# get_shop_currency + get_shop_timezone fire log.warning on DB exception
+# at the same per-paint hot-path frequency. Same rate-limit pattern applied.
+# These tests pin the contract so a future change cannot regress.
+# ---------------------------------------------------------------------------
+
+
+def test_get_shop_currency_primary_exception_warning_rate_limited(_enable_cache, db):
+    """get_shop_currency primary_currency DB exception → WARNING once, then DEBUG-rate-limited."""
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated DB outage on primary_currency lookup")
+
+    with patch.object(revenue_metrics.log, "warning") as mock_warn, \
+         patch.object(db, "query", side_effect=boom), \
+         patch.object(db, "execute") as mock_exec:
+        # Second-path (MODE() fallback) returns a row to avoid double-WARN path muddying the test.
+        mock_exec.return_value.fetchone.return_value = ("USD",)
+
+        # First call → WARNING
+        revenue_metrics.get_shop_currency(db, "currency-exc-shop.myshopify.com")
+        first = [c for c in mock_warn.call_args_list if "primary_currency lookup failed" in c.args[0]]
+        assert len(first) == 1, f"expected 1 WARN, got {len(first)}"
+
+        mock_warn.reset_mock()
+        # Second call within TTL → no WARNING (rate-limited)
+        revenue_metrics.get_shop_currency(db, "currency-exc-shop.myshopify.com")
+        second = [c for c in mock_warn.call_args_list if "primary_currency lookup failed" in c.args[0]]
+        assert len(second) == 0
+
+
+def test_get_shop_currency_fallback_exception_warning_rate_limited(_enable_cache, db):
+    """get_shop_currency fallback MODE() exception → WARNING once, then rate-limited."""
+    from app.models.merchant import Merchant
+
+    shop = "currency-fallback-exc-shop.myshopify.com"
+    # Merchant has NULL primary_currency so the code falls into the second try-block.
+    db.add(Merchant(shop_domain=shop, access_token="x", primary_currency=None))
+    db.commit()
+
+    def boom_on_execute(*args, **kwargs):
+        raise RuntimeError("simulated DB outage on MODE() fallback")
+
+    with patch.object(revenue_metrics.log, "warning") as mock_warn, \
+         patch.object(db, "execute", side_effect=boom_on_execute):
+        # First call → WARNING (fallback exception path)
+        revenue_metrics.get_shop_currency(db, shop)
+        first = [c for c in mock_warn.call_args_list if "failed to resolve currency" in c.args[0]]
+        assert len(first) == 1
+
+        mock_warn.reset_mock()
+        revenue_metrics.get_shop_currency(db, shop)
+        second = [c for c in mock_warn.call_args_list if "failed to resolve currency" in c.args[0]]
+        assert len(second) == 0
+
+
+def test_get_shop_timezone_exception_warning_rate_limited(_enable_cache, db):
+    """get_shop_timezone iana_timezone DB exception → WARNING once, then rate-limited."""
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated DB outage on iana_timezone")
+
+    with patch.object(revenue_metrics.log, "warning") as mock_warn, \
+         patch.object(db, "query", side_effect=boom):
+        tz1 = revenue_metrics.get_shop_timezone(db, "tz-exc-shop.myshopify.com")
+        first = [c for c in mock_warn.call_args_list if "iana_timezone lookup failed" in c.args[0]]
+        assert len(first) == 1
+        assert tz1 == "UTC"  # fallback preserved
+
+        mock_warn.reset_mock()
+        tz2 = revenue_metrics.get_shop_timezone(db, "tz-exc-shop.myshopify.com")
+        second = [c for c in mock_warn.call_args_list if "iana_timezone lookup failed" in c.args[0]]
+        assert len(second) == 0
+        assert tz2 == "UTC"
+
+
+def test_currency_and_timezone_rate_limit_keys_are_distinct(_enable_cache):
+    """Distinct rate-limit classes don't cross-talk: a currency exception
+    won't suppress a timezone exception."""
+    rk_cur = f"{revenue_metrics._WARN_RATELIMIT_PREFIX}:currency_primary:shared-shop.myshopify.com"
+    rk_tz = f"{revenue_metrics._WARN_RATELIMIT_PREFIX}:timezone_iana:shared-shop.myshopify.com"
+    rk_cur_fb = f"{revenue_metrics._WARN_RATELIMIT_PREFIX}:currency_fallback:shared-shop.myshopify.com"
+    # All three are first-seen → all emit
+    assert revenue_metrics._should_emit_warning(rk_cur) is True
+    assert revenue_metrics._should_emit_warning(rk_tz) is True
+    assert revenue_metrics._should_emit_warning(rk_cur_fb) is True
