@@ -80,9 +80,22 @@ def _shop_for(idx: int) -> str:
     return f"{_SHOP_PREFIX}{idx:05d}.myshopify.com"
 
 
+_INSERT_CHUNK_SIZE = 1000
+
+
 def setup_merchants(n: int, *, force: bool = False) -> list[str]:
     """Create N test merchants. Returns list of shop_domains.
-    Refuses to run if existing _loadtest_ merchants found (unless force)."""
+    Refuses to run if existing _loadtest_ merchants found (unless force).
+
+    Chunked INSERT pattern (1000-row batches, separate commits):
+    A single-tx 10k INSERT trips PgBouncer at transaction-pool mode —
+    surfaced 2026-05-14 attempting the 10k baseline probe. Chunking
+    keeps each tx short so PgBouncer can recycle the server-side
+    connection between batches.
+
+    ON CONFLICT (shop_domain) DO NOTHING makes setup idempotent: a
+    crashed prior run with --force can re-run without manual cleanup.
+    """
     db = SessionLocal()
     try:
         existing = db.execute(
@@ -102,26 +115,27 @@ def setup_merchants(n: int, *, force: bool = False) -> list[str]:
             )
             db.commit()
 
-        shops: list[str] = []
-        # Bulk INSERT via execute_many for speed
-        rows = []
+        shops: list[str] = [_shop_for(i) for i in range(n)]
         encrypted = encrypt_token("shpat_loadtest")
-        for i in range(n):
-            shop = _shop_for(i)
-            rows.append({
-                "shop": shop,
-                "tok": encrypted,
-            })
-            shops.append(shop)
 
-        db.execute(text("""
-            INSERT INTO merchants
-                (shop_domain, access_token, plan, billing_active,
-                 install_status, session_version)
-            VALUES
-                (:shop, :tok, 'pro', true, 'active', 0)
-        """), rows)
-        db.commit()
+        for chunk_start in range(0, n, _INSERT_CHUNK_SIZE):
+            chunk = shops[chunk_start:chunk_start + _INSERT_CHUNK_SIZE]
+            rows = [{"shop": s, "tok": encrypted} for s in chunk]
+            db.execute(
+                text(
+                    """
+                    INSERT INTO merchants
+                        (shop_domain, access_token, plan, billing_active,
+                         install_status, session_version)
+                    VALUES
+                        (:shop, :tok, 'pro', true, 'active', 0)
+                    ON CONFLICT (shop_domain) DO NOTHING
+                    """
+                ),
+                rows,
+            )
+            db.commit()
+
         return shops
     finally:
         db.close()
