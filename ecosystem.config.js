@@ -90,27 +90,35 @@ module.exports = {
     },
 
     // -------------------------------------------------------------------------
-    // FastAPI backend — uvicorn ASGI server with 4 worker subprocesses.
+    // FastAPI backend — uvicorn ASGI server with 8 worker subprocesses.
     //
-    // PM2 runs 1 instance of the uvicorn MASTER; uvicorn itself forks 4
+    // PM2 runs 1 instance of the uvicorn MASTER; uvicorn itself forks 8
     // worker children to handle requests. This is the correct multi-
-    // worker pattern — setting PM2 `instances: 4` would launch 4 uvicorn
+    // worker pattern — setting PM2 `instances: 8` would launch 8 uvicorn
     // MASTERS all binding the same port, which fails.
     //
     // DB pool is env-tuned below in the env block (DB_POOL_SIZE=50,
     // DB_MAX_OVERFLOW=100 — see also app/core/database.py defaults):
-    // 4 workers × (50+100) = 600 client conns to PgBouncer (which
+    // 8 workers × (50+100) = 1200 client conns to PgBouncer (which
     // multiplexes onto 50 server-side PG conns; PG max_connections=200
-    // unchanged). PgBouncer max_client_conn=5000 → ample headroom.
+    // unchanged). PgBouncer max_client_conn=5000 → still ample headroom.
     //
-    // History (kept for audit trail; current state is `50+100` below):
-    //   2026-05-04 Stage 1: 5+10=15 per worker (insufficient at 100
-    //     concurrent merchants — p99=16s, 24% timeout)
-    //   2026-05-04 Stage 2: 8+15=23 per worker (53% headroom; passed
-    //     100-merchant load test but still saturated at 1000)
-    //   2026-05-04 Stage 3 (CURRENT): 50+100 per worker post-PgBouncer
-    //     landing — 1000-merchant test surfaced that app pool was the
-    //     new bottleneck (PgBouncer + Redis were not).
+    // RAM math: 8 workers × ~200M = 1600M + ~50M master = ~1650M total.
+    // System has ~5.7GB available pre-bump; the +800MB cost still leaves
+    // ~4.9GB headroom. max_memory_restart is 2048M to avoid restart
+    // loops at full worker memory; 4-worker default 1024M would have
+    // triggered restart on every PgBouncer-driven concurrency spike.
+    //
+    // History (kept for audit trail; current state is `8 workers`):
+    //   2026-05-04 Stage 1: 4 workers, 5+10=15 pool per worker
+    //     (p99=16s, 24% timeout at 100 concurrent)
+    //   2026-05-04 Stage 2: 4 workers, 8+15=23 pool (passed 100,
+    //     saturated at 1000)
+    //   2026-05-04 Stage 3: 4 workers, 50+100 pool post-PgBouncer
+    //     (1000-merchant test passed; burst ceiling ~150 req/s)
+    //   2026-05-15 Stage 4 (CURRENT): 8 workers, 50+100 pool —
+    //     burst ceiling ~300 req/s (10k-structural sprint TIER_2
+    //     fresh approval from founder).
     //
     // The actual env-block values below ARE the source of truth; this
     // comment block describes the architecture. Keep them in sync —
@@ -119,7 +127,7 @@ module.exports = {
     {
       name:                "wishspark-backend",
       script:              "/opt/wishspark/backend/venv/bin/python",
-      args:                "-m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4",
+      args:                "-m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 8",
       cwd:                 "/opt/wishspark/backend",
       interpreter:         "none",
       exec_mode:           "fork",
@@ -129,21 +137,21 @@ module.exports = {
       max_restarts:        10,
       restart_delay:       5000,
       kill_timeout:        10000,  // 10s graceful shutdown — finish in-flight requests
-      max_memory_restart:  "1024M",  // 4 workers × ~200M each
+      max_memory_restart:  "2048M",  // 8 workers × ~200M each + master + headroom
       out_file:            "/opt/wishspark/logs/backend-out.log",
       error_file:          "/opt/wishspark/logs/backend-error.log",
       merge_logs:          false,
       env: {
         PYTHONPATH:        "/opt/wishspark/backend",
-        // DB pool tuned for 4 uvicorn workers BEHIND PgBouncer
+        // DB pool tuned for 8 uvicorn workers BEHIND PgBouncer
         // (transaction pooling). Total app conns to PgBouncer:
-        // 4 × (50 + 100) = 600; PgBouncer max_client_conn=5000 →
+        // 8 × (50 + 100) = 1200; PgBouncer max_client_conn=5000 →
         // ample headroom. PgBouncer multiplexes onto 50 server-side
         // PG conns. PG max_connections=200 unchanged.
-        // Bumped 2026-05-04 (10k-readiness sprint Stage 3) from
-        // 8+15 → 50+100 after PgBouncer landed: 1000-merchant test
-        // showed app pool was the new bottleneck (PgBouncer + Redis
-        // were not).
+        // Pool size unchanged from Stage 3 — workers doubled, per-
+        // worker pool stays the same so PgBouncer-side semantics
+        // (transaction-pool multiplex onto 50 server conns) is
+        // unaffected.
         DB_POOL_SIZE:      "50",
         DB_MAX_OVERFLOW:   "100",
       },

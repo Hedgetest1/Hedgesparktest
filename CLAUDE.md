@@ -590,7 +590,7 @@ per `project_tier2_origin_lock_pending_2026_05_07.md`. €0 cost,
 
 | Process | Script | PM2 instances | Concurrency | Cycle |
 |---|---|---|---|---|
-| wishspark-backend | uvicorn app.main:app | 1 | **--workers 4** (uvicorn) | Always |
+| wishspark-backend | uvicorn app.main:app | 1 | **--workers 8** (uvicorn) | Always |
 | wishspark-dashboard | next start | 1 | single | Always |
 | wishspark-worker | intelligence_worker.py | 1 (singleton) | single | 10 min |
 | wishspark-agent-worker | agent_worker.py | 1 (singleton) | single | 15 min |
@@ -599,26 +599,34 @@ per `project_tier2_origin_lock_pending_2026_05_07.md`. €0 cost,
 | wishspark-nudge-optimizer | nudge_optimization_worker.py | 1 (singleton) | single | 6 hours |
 | wishspark-gdpr-worker | gdpr_worker.py | 1 (singleton) | single | 5 min |
 
-**Backend concurrency model (post 2026-04-23 scaling flip):** PM2 runs
-1 uvicorn MASTER process, which forks 4 WORKER subprocesses sharing
-port 8000. Request load spreads across the 4 workers; module-level
+**Backend concurrency model (post 2026-05-15 Stage 4 worker bump):** PM2
+runs 1 uvicorn MASTER process, which forks 8 WORKER subprocesses sharing
+port 8000. Request load spreads across the 8 workers; module-level
 mutable state would NOT share across them, so every such site in
 `app/api|core|services` is either Redis-backed, Redis-mirrored, or
 annotated `# multi-worker: accept-degrade` — enforced at preflight
-via `scripts/audit_multiworker_safety.py`.
+via `scripts/audit_multiworker_safety.py`. **Bumped 4→8 in 2026-05-15
+10k-structural sprint** (TIER_2 ecosystem.config.js, founder fresh
+approval). Burst ceiling doubled ~150 req/s → ~300 req/s. RAM cost:
++800 MB (4 extra workers × ~200 MB each); headroom remained ~4.9 GB
+post-bump. `max_memory_restart` raised 1024M → 2048M to avoid restart
+loops at full worker memory.
 
-**DB pool math (post-PgBouncer):** `DB_POOL_SIZE=50`,
+**DB pool math (post-PgBouncer + 8-worker Stage 4):** `DB_POOL_SIZE=50`,
 `DB_MAX_OVERFLOW=100` (ecosystem.config.js env block for
-wishspark-backend, read by `app/core/database.py`). 4 workers × (50 + 100)
-= 600 client conns to PgBouncer; PgBouncer max_client_conn=5000 → ample
-headroom. PgBouncer in transaction-pool mode multiplexes onto
+wishspark-backend, read by `app/core/database.py`). 8 workers × (50 + 100)
+= 1200 client conns to PgBouncer; PgBouncer max_client_conn=5000 → still
+ample headroom. PgBouncer in transaction-pool mode multiplexes onto
 default_pool_size=50 server-side PG conns. PG max_connections=200
 unchanged; PgBouncer keeps it ≤100 via max_db_connections.
-Bumped 2026-05-04 (10k-readiness sprint Stage 3) from 8+15 → 50+100
-after PgBouncer landed: 1000-merchant test surfaced app pool was the
-new bottleneck (PgBouncer + Redis pool were not). Architecture: app
-→ (port 6432) PgBouncer → (port 5432) Postgres. Update DATABASE_URL
-to point at port 6432 to use PgBouncer (default after this commit).
+Per-worker pool size unchanged from Stage 3 — the worker bump scales
+horizontal concurrency at the application layer; PgBouncer-side
+semantics (server-conn multiplexing) is unaffected.
+Pool itself bumped 2026-05-04 (10k-readiness sprint Stage 3) from 8+15 →
+50+100 after PgBouncer landed: 1000-merchant test surfaced app pool was
+the bottleneck. Architecture: app → (port 6432) PgBouncer →
+(port 5432) Postgres. Update DATABASE_URL to point at port 6432 to use
+PgBouncer (default after this commit).
 
 **Singleton guarantee for workers:** the 7 `wishspark-*-worker` /
 `-monitor` / `-optimizer` processes MUST remain `instances: 1` —
