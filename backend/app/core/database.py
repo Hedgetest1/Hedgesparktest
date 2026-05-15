@@ -94,6 +94,65 @@ elif "sslmode=" in (DATABASE_URL or ""):
 POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "50"))
 POOL_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "100"))
 
+# ---------------------------------------------------------------------------
+# Per-REQUEST statement / idle-in-txn timeout — bounds the worst-case
+# time a single request can hold a pooled connection.
+#
+# Truth (probed 2026-05-15b): PG `statement_timeout` and
+# `idle_in_transaction_session_timeout` are BOTH 0 (unlimited) — no
+# bound anywhere (PG / PgBouncer / connect_args). That is the systemic
+# root of the 284 uncached-handler "shared-ceiling contention" class:
+# ONE pathological query (bad plan / missing index at 10k / lock wait)
+# holds a pooled conn indefinitely and starves the shared PgBouncer
+# pool for EVERY other endpoint (the c≈64 cliff mechanism, generalised).
+#
+# This is applied PER REQUEST ONLY — inside get_db / get_read_db /
+# get_lazy_read_db — via `SET LOCAL` (transaction-scoped, so it resets
+# at txn end → safe under PgBouncer transaction pooling, no leak to
+# the next pooled client). It is deliberately NOT on the shared engine
+# `connect_args`: the aggregation/agent/SIP/CIG workers bind their own
+# SessionLocal to the SAME engine and legitimately run multi-minute
+# jobs — a global engine timeout would kill them. Workers never call
+# these FastAPI deps, so per-dep scoping is provably request-only
+# (verified: aggregation_worker.py builds its own sessionmaker).
+#
+# Value: 20s. Justification is an INVARIANT, not a fabricated
+# benchmark (pg_stat_statements is unavailable; honest about that): a
+# request query is not a worker job; `pool_timeout=30` is the
+# documented max-wait ceiling; 20s < 30s bounds worst-case pool-hold
+# below the cliff; every request path measured this session was ≤ low
+# single-digit seconds. A request query > 20s is a pathology that
+# SHOULD be killed (clean 500 on ONE request) rather than allowed to
+# starve the whole backend. Env-tunable for ops; tradeoff documented,
+# not hidden.
+# ---------------------------------------------------------------------------
+REQUEST_STMT_TIMEOUT_MS = int(os.getenv("DB_REQUEST_STATEMENT_TIMEOUT_MS", "20000"))
+REQUEST_IDLE_TX_TIMEOUT_MS = int(os.getenv("DB_REQUEST_IDLE_TX_TIMEOUT_MS", "20000"))
+
+
+def _apply_request_timeouts(session) -> None:
+    """Bound how long a REQUEST may hold a pooled connection. SET LOCAL
+    is transaction-scoped → PgBouncer-transaction-safe (resets on txn
+    end, no cross-client leak). Best-effort: a failure here must never
+    break the request (the unbounded behaviour is the pre-existing
+    state, not a regression)."""
+    try:
+        from sqlalchemy import text as _text
+        session.execute(_text(
+            f"SET LOCAL statement_timeout = {int(REQUEST_STMT_TIMEOUT_MS)}"
+        ))
+        session.execute(_text(
+            "SET LOCAL idle_in_transaction_session_timeout = "
+            f"{int(REQUEST_IDLE_TX_TIMEOUT_MS)}"
+        ))
+    except Exception as exc:  # pragma: no cover - defensive
+        try:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("database.request_timeout_set_failed")
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: observability best-effort
+        log.warning("database: SET LOCAL request timeouts failed: %s", exc)
+
 engine = create_engine(
     DATABASE_URL,
     pool_size=POOL_SIZE,
@@ -177,6 +236,7 @@ def get_read_db():
     worse, silently replicate back).
     """
     db = ReadSession()
+    _apply_request_timeouts(db)
     try:
         yield db
     finally:
@@ -215,6 +275,9 @@ class _LazyReadSession:
     def _ensure(self):
         if self._real is None:
             self._real = ReadSession()
+            # Applied on FIRST USE only — a cache-hit handler never
+            # calls _ensure, so it stays 0-conn AND skips this SET.
+            _apply_request_timeouts(self._real)
         return self._real
 
     def __getattr__(self, name):
@@ -274,6 +337,7 @@ def get_db():
     is finalized, even on exceptions.
     """
     db = SessionLocal()
+    _apply_request_timeouts(db)
     try:
         yield db
     finally:

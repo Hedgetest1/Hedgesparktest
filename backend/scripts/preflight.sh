@@ -921,6 +921,18 @@ else
     tail -20 /tmp/preflight_cfcp.log
 fi
 
+# The per-request connection-hold bound (SET LOCAL statement_timeout)
+# is the class-wide structural defense for the 284 uncached handlers.
+# If a refactor drops it from any request dep, unbounded queries can
+# again starve the shared PgBouncer pool. Cheap AST check; KEEP STRICT.
+step "Request timeout wired (audit_request_timeout_wired.py)"
+if "$PY" scripts/audit_request_timeout_wired.py > /tmp/preflight_rtw.log 2>&1; then
+    ok "get_db/get_read_db/lazy all bound by _apply_request_timeouts"
+else
+    bad "per-request conn-hold bound dropped — see /tmp/preflight_rtw.log"
+    tail -10 /tmp/preflight_rtw.log
+fi
+
 # ---------------------------------------------------------------------------
 # 2d. Alembic drift gate — the hard gate. Any drift between Base.metadata
 # and the live DB schema blocks the commit. This is the top-1-world bar:
