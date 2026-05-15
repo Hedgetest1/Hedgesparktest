@@ -1201,16 +1201,28 @@ deep-dive reference that would bloat CLAUDE.md.
 - North Star full roadmap → `project_unreachable_north_star.md`
 - Latest work → `project_triple_sprint_11_10.md` (2026-04-13)
 
-**READ FIRST at session start:**
+**READ FIRST at session start (resume chain — order is load-bearing):**
 1. This file (CLAUDE.md) — auto-loaded
 2. `MEMORY.md` — auto-loaded index
-3. 🚀 **`project_beta_launch_master_plan.md`** — active master plan for
-   the beta launch sprint. Contains the self-audit, Lite/Pro partition
-   proposal, Opzione A sprint stages 1-4, unit economics voices to
-   collect, legal Italia checklist, `<ExplainerDrawer>` primitive spec,
-   Night Shift Timeline spec. **This is the current work; start here.**
-4. `git log -5` — what shipped recently
-5. The latest `project_*_shipped.md` pointed to by the index
+3. 🔴 **`SESSION_STATE.md`** — THE authoritative "where to head right
+   now". Has the prioritized NEXT STEPS list (current top: 🥇 10k
+   load run — pure execution, no founder). Per
+   `feedback_session_resume_protocol.md` this is the single source of
+   truth for *what is happening right now*. **Start here for the
+   next action.**
+4. 🩻 `project_status_snapshot.md` — ground-truth current state
+   (overrides any optimistic commit/summary claim).
+5. 📋 `project_post_2026_05_14_audit_pending.md` — the "🔬 per-item
+   VERIFIED status" table: every open/closed item with next step.
+6. `git log -8` — what shipped recently (cross-check vs snapshot).
+7. The latest `project_session_*_shipped.md` (top of MEMORY index).
+
+📌 `project_beta_launch_master_plan.md` is **strategic background
+from 2026-04-14** (Opzione A beta-launch, Lite/Pro partition, legal
+Italia). It is NOT "the current work" — that label drifted stale by
+a month. Read it for strategic context only; the actionable next
+step lives in SESSION_STATE.md (#3 above). When SESSION_STATE and
+this pointer disagree, SESSION_STATE wins.
 
 ---
 
