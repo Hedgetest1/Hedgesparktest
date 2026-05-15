@@ -910,6 +910,24 @@ else
     grep -E "Detected (added|removed|type|NULL|changed|comment)" /tmp/preflight_alembic.log | head -30 || true
 fi
 
+# Orthogonal gate: single alembic head. Born 2026-05-15 after the
+# audit-chain sprint discovered TWO heads silently coexisting —
+# `aa7_brain_immutability_hash` (applied to prod) +
+# `zzzg_plan_lite_canonical` (a parallel branch NEVER applied).
+# `alembic check` validates model-vs-DB drift but does NOT flag
+# branch divergence; the multi-head state means a fresh DB and prod
+# can land on DIFFERENT schema depending on which head alembic picks.
+# The fix is always a merge migration (down_revision tuple). This
+# gate makes the divergence un-shippable instead of latent.
+step "Alembic single-head check (no branch divergence)"
+_alembic_head_count=$("$BACKEND/venv/bin/alembic" heads 2>/dev/null | grep -c '(head)' || echo "0")
+if [ "$_alembic_head_count" = "1" ]; then
+    ok "single alembic head"
+else
+    bad "alembic has $_alembic_head_count heads — branch divergence. Run 'alembic heads' and add a merge migration (down_revision tuple of all heads)."
+    "$BACKEND/venv/bin/alembic" heads 2>/dev/null | head -10 || true
+fi
+
 # Orthogonal gate: wishspark vs wishspark_test alembic-version parity.
 # Catches the class where a new migration was applied to prod but
 # forgotten on test (or vice-versa). Root-caused + fixed 2026-04-23 in
