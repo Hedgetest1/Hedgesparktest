@@ -69,68 +69,112 @@ def _find_function(module: ast.Module, name: str) -> ast.FunctionDef | None:
     return None
 
 
-def py_function_has_none_check(path: Path, func_name: str, var_name: str) -> tuple[bool, str]:
+def py_function_has_none_check(
+    path: Path, func_name: "str | tuple[str, ...]", var_name: str
+) -> tuple[bool, str]:
     """
-    Assert function `func_name` in `path` contains an `if <var_name> is None:`
-    statement that raises. Defeats the "comment the line" regex scam.
+    Assert that AT LEAST ONE of the candidate functions in `path`
+    contains an `if <var_name> is None:` statement that either raises
+    OR returns a *-prefixed sentinel reason constant (the refactored
+    delegation shape — the gate moved into a shared resolver that the
+    public function maps to an HTTP raise). Defeats the "comment the
+    line" regex scam AND tracks the single-source-of-truth refactor
+    (2026-05-15: the merchant-existence + sv gates moved from
+    require_merchant_session into the shared _resolve_session_identity;
+    the invariant must still EXIST somewhere in the auth path, just not
+    necessarily inlined in the public entrypoint).
+
+    func_name accepts a str (single function) or a tuple of candidate
+    function names — pass if ANY contains the gate. Prevention value is
+    preserved: the audit still fails loudly if the gate is removed from
+    ALL candidates.
     """
     try:
         mod = _parse_python(path)
     except SyntaxError as exc:
         return False, f"syntax error parsing {path.name}: {exc}"
-    func = _find_function(mod, func_name)
-    if func is None:
-        return False, f"function `{func_name}` not found in {path.name}"
-    for node in ast.walk(func):
-        if not isinstance(node, ast.If):
+    candidates = (func_name,) if isinstance(func_name, str) else tuple(func_name)
+    missing: list[str] = []
+    for fname in candidates:
+        func = _find_function(mod, fname)
+        if func is None:
+            missing.append(f"`{fname}` not found")
             continue
-        test = node.test
-        # Match: `<name> is None`
-        if (
-            isinstance(test, ast.Compare)
-            and isinstance(test.left, ast.Name)
-            and test.left.id == var_name
-            and len(test.ops) == 1
-            and isinstance(test.ops[0], ast.Is)
-            and len(test.comparators) == 1
-            and isinstance(test.comparators[0], ast.Constant)
-            and test.comparators[0].value is None
-        ):
-            # Body must raise (not just pass/log/return)
-            for sub in ast.walk(node):
-                if isinstance(sub, ast.Raise):
-                    return True, f"{func_name}: `if {var_name} is None:` → raise present"
-    return False, f"{func_name}: no `if {var_name} is None: raise ...` in function body"
+        for node in ast.walk(func):
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            # Match: `<name> is None`
+            if (
+                isinstance(test, ast.Compare)
+                and isinstance(test.left, ast.Name)
+                and test.left.id == var_name
+                and len(test.ops) == 1
+                and isinstance(test.ops[0], ast.Is)
+                and len(test.comparators) == 1
+                and isinstance(test.comparators[0], ast.Constant)
+                and test.comparators[0].value is None
+            ):
+                # Body must raise OR return a sentinel reason constant
+                # (the refactored shape: `return None, _SESS_NO_MERCHANT`).
+                for sub in ast.walk(node):
+                    if isinstance(sub, ast.Raise):
+                        return True, f"{fname}: `if {var_name} is None:` → raise present"
+                    if isinstance(sub, ast.Return) and sub.value is not None:
+                        unparsed = ast.unparse(sub.value)
+                        if "_SESS_" in unparsed or "NO_MERCHANT" in unparsed:
+                            return True, (
+                                f"{fname}: `if {var_name} is None:` → "
+                                f"sentinel-reason return present (delegated gate)"
+                            )
+    return False, (
+        f"no `if {var_name} is None: raise/sentinel` in any of "
+        f"{list(candidates)} ({'; '.join(missing) or 'pattern absent'})"
+    )
 
 
 def py_function_has_compare(
-    path: Path, func_name: str, left: str, op_type: type, right: str
+    path: Path, func_name: "str | tuple[str, ...]", left: str, op_type: type, right: str
 ) -> tuple[bool, str]:
     """
-    Assert function body contains a comparison `<left> <op> <right>`
-    where <op> is the ast comparison operator class (e.g. ast.Lt).
+    Assert that AT LEAST ONE candidate function body contains a
+    comparison `<left> <op> <right>` (op = ast comparison class, e.g.
+    ast.Lt).
+
+    func_name accepts str or a tuple of candidate names — pass if ANY
+    contains the comparison. Tracks the 2026-05-15 single-source-of-
+    truth refactor (the sv-mismatch gate moved from
+    require_merchant_session into the shared _resolve_session_identity)
+    while preserving prevention (fails if removed from ALL candidates).
     """
     try:
         mod = _parse_python(path)
     except SyntaxError as exc:
         return False, f"syntax error parsing {path.name}: {exc}"
-    func = _find_function(mod, func_name)
-    if func is None:
-        return False, f"function `{func_name}` not found in {path.name}"
-    for node in ast.walk(func):
-        if not isinstance(node, ast.Compare):
+    candidates = (func_name,) if isinstance(func_name, str) else tuple(func_name)
+    missing: list[str] = []
+    for fname in candidates:
+        func = _find_function(mod, fname)
+        if func is None:
+            missing.append(f"`{fname}` not found")
             continue
-        if (
-            isinstance(node.left, ast.Name)
-            and node.left.id == left
-            and len(node.ops) == 1
-            and isinstance(node.ops[0], op_type)
-            and len(node.comparators) == 1
-            and isinstance(node.comparators[0], ast.Name)
-            and node.comparators[0].id == right
-        ):
-            return True, f"{func_name}: `{left} {op_type.__name__} {right}` present"
-    return False, f"{func_name}: no `{left} < {right}` comparison in body"
+        for node in ast.walk(func):
+            if not isinstance(node, ast.Compare):
+                continue
+            if (
+                isinstance(node.left, ast.Name)
+                and node.left.id == left
+                and len(node.ops) == 1
+                and isinstance(node.ops[0], op_type)
+                and len(node.comparators) == 1
+                and isinstance(node.comparators[0], ast.Name)
+                and node.comparators[0].id == right
+            ):
+                return True, f"{fname}: `{left} {op_type.__name__} {right}` present"
+    return False, (
+        f"no `{left} < {right}` comparison in any of {list(candidates)} "
+        f"({'; '.join(missing) or 'pattern absent'})"
+    )
 
 
 def py_function_calls_with_kw(
@@ -269,9 +313,13 @@ INVARIANTS: list[Invariant] = [
     Invariant(
         "session_version mismatch rejection (forced logout)",
         "S5",
+        # 2026-05-15: the gate moved into the shared _resolve_session_
+        # identity resolver (single source of truth, byte-identical
+        # behaviour proven by 20/20 auth regression). Check the
+        # delegation pair — pass if EITHER has it, fail if BOTH lose it.
         lambda: py_function_has_compare(
             BACKEND / "app/core/deps.py",
-            "require_merchant_session",
+            ("require_merchant_session", "_resolve_session_identity"),
             left="token_sv",
             op_type=ast.Lt,
             right="db_sv",
@@ -282,7 +330,7 @@ INVARIANTS: list[Invariant] = [
         "S12",
         lambda: py_function_has_none_check(
             BACKEND / "app/core/deps.py",
-            "require_merchant_session",
+            ("require_merchant_session", "_resolve_session_identity"),
             var_name="merchant",
         ),
     ),

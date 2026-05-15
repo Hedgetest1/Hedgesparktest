@@ -371,6 +371,80 @@ _TRACK_CORS_HEADERS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Cache-first short-circuit for GET /dashboard/overview (10k warm-path win)
+#
+# Born 2026-05-15. The pending-ledger task "convert /overview to async def"
+# was theater: FastAPI runs sync Depends() in the threadpool regardless of
+# handler async-ness (verified against fastapi 0.135.1 source —
+# solve_dependencies runs independent of the handler is_coroutine flag), so
+# converting only the handler signature does NOT remove the dominant warm-
+# path cost (~4 threadpool round-trips: require_merchant_session + get_db
+# gen + get_read_db gen + sync handler body). An independent Agent audit
+# surfaced the real win: short-circuit the cache-hit BEFORE the router
+# resolves dependencies.
+#
+# This middleware is the FIRST @app.middleware registered → Starlette makes
+# it the INNERMOST layer (runs last before the route). Every other
+# middleware (slo timing, dashboard rate-limit, csrf, security headers,
+# request-id, query-count) is OUTER and still wraps the early response —
+# rate-limiting, SLO recording and security headers are all preserved.
+#
+# Correctness invariants:
+#  * Auth decision is delegated to deps._resolve_session_identity — the
+#    SINGLE source of truth shared with require_merchant_session. It
+#    CANNOT drift (a drift would be a tenant-isolation / forced-logout
+#    bypass). Only _SESS_OK (token valid AND merchant exists AND
+#    session_version not stale, all resolvable from the Redis msv cache
+#    with NO DB) is honoured. sv-expired / no-merchant / msv-cache-miss /
+#    no-cookie ALL fall through to the normal DB-backed handler.
+#  * The dev bypass is deliberately NOT honoured here — a cached response
+#    must require a real signed session.
+#  * The entire sync fast-path (cookie parse + JWT verify + 2 Redis GETs)
+#    runs in ONE run_in_threadpool call: 1 threadpool round-trip vs ~4,
+#    zero DB, and zero event-loop-block risk (a Redis stall cannot freeze
+#    the worker's event loop the way a direct sync Redis call would).
+#  * Cache key is byte-identical to the handler:
+#    KEY_DASHBOARD.format(shop=shop) + ":lite".
+# ---------------------------------------------------------------------------
+def _dashboard_overview_fast_path(request: Request):
+    """Sync fast-path. Returns the cached dashboard dict iff the session
+    is fully validated (Redis-only, no DB) AND the dashboard cache hits.
+    Returns None on ANY other outcome → caller falls through to the
+    normal handler. Never raises into the event loop (caller guards)."""
+    from app.core.deps import _resolve_session_identity, _SESS_OK
+    shop, reason = _resolve_session_identity(request, db=None)
+    if reason != _SESS_OK or not shop:
+        return None
+    from app.core.redis_client import cache_get, KEY_DASHBOARD
+    return cache_get(KEY_DASHBOARD.format(shop=shop) + ":lite")
+
+
+@app.middleware("http")
+async def dashboard_overview_cache_first_middleware(request: Request, call_next):
+    if request.method != "GET" or request.url.path != "/dashboard/overview":
+        return await call_next(request)
+    try:
+        from starlette.concurrency import run_in_threadpool
+        cached = await run_in_threadpool(_dashboard_overview_fast_path, request)
+    except Exception:
+        # Fast-path must NEVER break the request — fall through to the
+        # normal handler on any unexpected error. Observed via
+        # record_silent_return so a persistently-failing fast-path
+        # (e.g. Redis outage) surfaces in /ops/silent-fallback instead
+        # of silently degrading every warm request to the slow path.
+        try:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("dashboard_overview_cache_first.fast_path_exception")
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: observability is best-effort; never let it break the request
+        cached = None
+    if cached is None:
+        return await call_next(request)
+    from fastapi.responses import JSONResponse
+    return JSONResponse(content=cached)
+
+
 @app.middleware("http")
 async def track_preflight_middleware(request: Request, call_next):
     if request.method == "OPTIONS" and request.url.path in _TRACK_PREFLIGHT_PATHS:
