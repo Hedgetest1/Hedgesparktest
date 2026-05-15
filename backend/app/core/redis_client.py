@@ -60,7 +60,23 @@ TTL_BRIEF = 86_400      # 24 hours
 KEY_AI_COMPOSE = "hs:ai_compose:{hash}"    # format with payload hash
 TTL_AI_COMPOSE = 86400  # 24 hours — same product + same signals = same copy (saves LLM calls)
 KEY_DASHBOARD  = "hs:dash:{shop}"          # format with shop_domain
-TTL_DASHBOARD  = 60     # 60 seconds — dashboard data refreshes on aggregation cycle
+# 6 min — deliberately a touch longer than the 5-min aggregation cycle
+# that is the ONLY thing that mutates this data. A 60s TTL forced ~5×
+# more cold rebuilds than the data's real refresh rate; the 2026-05-15
+# 10k load test proved the every-60s mass re-cold collapsed the backend
+# (99.58% timeouts, PgBouncer connection death). Longer TTL is not a
+# staleness regression — the data simply does not change faster.
+TTL_DASHBOARD  = 360
+# Last-known-good sticky mirror. Written alongside EVERY dashboard
+# cache_set (request cold-build path + worker prewarm). On a cold miss
+# where another request already holds the stampede lock, repeat/other
+# visitors get this real (≤24h stale) payload instead of piling more
+# ~18-query builds onto a contended DB. Mirrors the proven
+# `hs:email:last_verified` 24h sticky-state pattern (CLAUDE.md §13).
+KEY_DASHBOARD_STICKY = "hs:dash:{shop}:sticky"   # format with shop_domain
+TTL_DASHBOARD_STICKY = 86_400   # 24h last-known-good safety net
+KEY_DASHBOARD_LOCK   = "hs:dash:lock:{shop}"     # SETNX stampede lock
+TTL_DASHBOARD_LOCK   = 30       # max single-builder window (build ceiling)
 
 # ---------------------------------------------------------------------------
 # Connection pool — created once at module import.

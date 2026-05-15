@@ -897,6 +897,18 @@ else
     tail -30 /tmp/preflight_model_drift.log
 fi
 
+# Dashboard lazy-DB gate — a cache-first handler that pins a
+# Depends(get_db/get_read_db) connection across a cache hit wedged
+# PgBouncer's global ceiling at c≈64 (pool_timeout=30 cliff, proven
+# 2026-05-15). Cheap AST check; KEEP STRICT.
+step "Dashboard lazy-DB audit (audit_dashboard_lazy_db.py)"
+if "$PY" scripts/audit_dashboard_lazy_db.py > /tmp/preflight_lazy_db.log 2>&1; then
+    ok "no cache-first dashboard handler pins a Depends DB connection"
+else
+    bad "dashboard connection pinned across cache hit — see /tmp/preflight_lazy_db.log"
+    tail -20 /tmp/preflight_lazy_db.log
+fi
+
 # ---------------------------------------------------------------------------
 # 2d. Alembic drift gate — the hard gate. Any drift between Base.metadata
 # and the live DB schema blocks the commit. This is the top-1-world bar:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,6 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import get_read_db
 from app.core.deps import require_merchant_session, require_pro_session
 from app.services.external_lookup_service import infer_external_lookup
 
@@ -891,7 +891,10 @@ def build_lite_dashboard_overview(db: Session, shop: str) -> dict[str, Any]:
     paid the cold-cache cost. Pre-warming via worker eliminates
     almost all cold paths under steady-state load.
     """
-    from app.core.redis_client import cache_get, cache_set, KEY_DASHBOARD, TTL_DASHBOARD
+    from app.core.redis_client import (
+        cache_get, cache_set, KEY_DASHBOARD, TTL_DASHBOARD,
+        KEY_DASHBOARD_STICKY, TTL_DASHBOARD_STICKY,
+    )
     from app.services.revenue_metrics import get_shop_aov, get_shop_currency, FALLBACK_AOV
 
     cache_key = KEY_DASHBOARD.format(shop=shop) + ":lite"
@@ -926,7 +929,91 @@ def build_lite_dashboard_overview(db: Session, shop: str) -> dict[str, Any]:
         "intelligence":         store_brief,
     }
     cache_set(cache_key, result, TTL_DASHBOARD)
+    # Last-known-good sticky mirror (24h). The cold-miss stampede
+    # fallback serves this REAL (≤24h stale) payload — identical schema,
+    # zero frontend risk — instead of a synthetic warming shape or a 2nd
+    # 18-query build on a contended DB. Written by BOTH the request
+    # cold-path and the worker prewarm, so every shop seen in the last
+    # 24h has a safety net.
+    cache_set(
+        KEY_DASHBOARD_STICKY.format(shop=shop) + ":lite",
+        result, TTL_DASHBOARD_STICKY,
+    )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Stampede guard — shared cold-miss path for the Lite + Pro overviews.
+# Born 2026-05-15: the 10k load test proved the unguarded ~18-query cold
+# build collapses the backend at scale (99.58% timeouts + PgBouncer
+# connection death). Mirrors the proven store_profile.py SETNX pattern.
+# ---------------------------------------------------------------------------
+
+_DASHBOARD_LOCK_TTL_SEC = 30          # max single-builder window
+_DASHBOARD_LOCK_WAIT_BUDGET_SEC = 2.5  # poll budget for the lost-race path
+
+
+def _acquire_dashboard_lock(lock_key: str) -> bool:
+    """SETNX stampede lock — True if caller is the single builder.
+    Degrade-open: Redis down → proceed (compute, no stampede guard),
+    same contract as store_profile._acquire_lock."""
+    try:
+        from app.core.redis_client import _client
+        from app.core.silent_fallback import record_silent_return
+        rc = _client()
+        if rc is None:
+            record_silent_return("dashboard.lock_acquire_redis_down")
+            return True
+        return bool(rc.set(lock_key, "1", nx=True, ex=_DASHBOARD_LOCK_TTL_SEC))
+    except Exception as exc:
+        log.warning("dashboard: lock acquire failed (%s): %s", lock_key, exc)
+        return True  # degrade-open: better to compute than to block
+
+
+def _wait_for_dashboard_cache(cache_key: str) -> Any | None:
+    """Stampede waiter — the lock holder is building; poll the primary
+    cache for a bounded budget. Mirrors store_profile._wait_for_cache."""
+    from app.core.redis_client import cache_get
+    deadline = time.monotonic() + _DASHBOARD_LOCK_WAIT_BUDGET_SEC
+    while time.monotonic() < deadline:
+        hit = cache_get(cache_key)
+        if hit is not None:
+            return hit
+        time.sleep(0.1)
+    return None
+
+
+def _serve_dashboard_with_stampede_guard(
+    cache_key: str, sticky_key: str, lock_key: str, builder,
+) -> Any:
+    """Shared cold-miss path. Caller has already confirmed the primary
+    cache missed. Three-tier solidity:
+
+      1. Lock acquired  → single builder; on builder error fall back to
+         sticky last-known-good — never a 5xx cascade.
+      2. Lost the race  → serve real sticky (≤24h stale) immediately
+         (steady-state once prewarm has run at least once — ZERO wait,
+         ZERO DB); else poll the primary briefly.
+      3. Brand-new shop → no sticky, holder still building: one bounded
+         build (stampede-collapsed to exactly this one for the shop).
+    """
+    from app.core.redis_client import cache_get
+    if _acquire_dashboard_lock(lock_key):
+        try:
+            return builder()
+        except Exception as exc:
+            log.warning("dashboard: cold build failed (%s): %s", cache_key, exc)
+            sticky = cache_get(sticky_key)
+            if sticky is not None:
+                return sticky
+            raise
+    sticky = cache_get(sticky_key)
+    if sticky is not None:
+        return sticky
+    waited = _wait_for_dashboard_cache(cache_key)
+    if waited is not None:
+        return waited
+    return builder()
 
 
 def prewarm_lite_dashboard(db: Session, shop: str) -> bool:
@@ -948,37 +1035,66 @@ def prewarm_lite_dashboard(db: Session, shop: str) -> bool:
 @router.get("/overview")
 def get_dashboard_overview(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_read_db),
 ):
     """
     Lite dashboard overview — summary, top_products, real AOV/currency.
 
-    Cached in Redis for 60 seconds.  Dashboard data changes on aggregation
-    worker cycles (5 min), so 60s staleness is imperceptible to merchants.
+    Cached in Redis (TTL_DASHBOARD = 6 min — the only thing that mutates
+    this data is the 5-min aggregation cycle, so this is not a staleness
+    regression). Also short-circuited pre-router by the cache-first
+    middleware in app.main on a warm hit (0 DB).
 
-    Cache hit path: zero DB queries.
-    Cache miss path: ~18 DB queries (delegated to build_lite_dashboard_overview).
-    The aggregation worker pre-warms this cache for active merchants every
-    5 min, so production cold-cache hits are rare.
+    NB: there is deliberately NO `db: Session = Depends(get_read_db)`.
+    FastAPI resolves Depends BEFORE the handler body, so a `Depends`
+    session pins a pooled connection for the ENTIRE request — even on a
+    warm cache hit that issues zero queries. At 10k that wedged the
+    PgBouncer global ceiling (proven 2026-05-15: 2 conns/req held whole-
+    request → pool_timeout=30 cliff at c≈64). The DB session is now
+    acquired LAZILY, only inside the cold-build closure, and released
+    immediately after — warm hits hold ZERO DB connections.
+
+    Cache hit  : zero DB queries, zero DB connections.
+    Cache miss : stampede-guarded ~18-query build (one builder per shop;
+                 others get sticky last-known-good). The aggregation
+                 worker pre-warms this cache, so cold hits are rare.
     """
-    from app.core.redis_client import cache_get, KEY_DASHBOARD
+    from app.core.redis_client import (
+        cache_get, KEY_DASHBOARD, KEY_DASHBOARD_STICKY, KEY_DASHBOARD_LOCK,
+    )
     cache_key = KEY_DASHBOARD.format(shop=shop) + ":lite"
     cached = cache_get(cache_key)
     if cached is not None:
         return cached
-    return build_lite_dashboard_overview(db, shop)
+
+    def _build():
+        from app.core.database import ReadSession
+        _db = ReadSession()
+        try:
+            return build_lite_dashboard_overview(_db, shop)
+        finally:
+            _db.close()
+
+    return _serve_dashboard_with_stampede_guard(
+        cache_key,
+        KEY_DASHBOARD_STICKY.format(shop=shop) + ":lite",
+        KEY_DASHBOARD_LOCK.format(shop=shop) + ":lite",
+        _build,
+    )
 
 
 @router.get("/intelligence")
 def get_dashboard_intelligence(
     shop: str = Depends(require_merchant_session),
-    db: Session = Depends(get_read_db),
 ):
     """
     Store intelligence brief — multi-signal synthesis with priority action.
 
     Returns the StoreBrief: signal trends, diagnosis, priority insight, raw data.
     Cached for 5 minutes. This is the "decision-first" data for the dashboard hero.
+
+    Lazy DB session (same rationale as get_dashboard_overview): a
+    `Depends(get_read_db)` would pin a pooled connection for the whole
+    request even on the warm cache hit. Acquired only on cache miss.
     """
     from app.core.redis_client import cache_get, cache_set
     brief_key = f"hs:brief:{shop}"
@@ -987,8 +1103,13 @@ def get_dashboard_intelligence(
     if cached is not None:
         return cached
 
+    from app.core.database import ReadSession
     from app.services.store_insight_engine import generate_store_brief
-    brief = generate_store_brief(db, shop)
+    _db = ReadSession()
+    try:
+        brief = generate_store_brief(_db, shop)
+    finally:
+        _db.close()
     if not brief:
         return {"status": "insufficient_data", "message": "Not enough data yet for intelligence analysis."}
 
@@ -997,30 +1118,21 @@ def get_dashboard_intelligence(
     return result
 
 
-@router.get("/overview/pro")
-def get_dashboard_overview_pro(
-    shop: str = Depends(require_pro_session),
-    db: Session = Depends(get_read_db),
-):
+def build_pro_dashboard_overview(db: Session, shop: str) -> dict[str, Any]:
+    """Build the Pro dashboard payload + write primary AND sticky cache.
+
+    Symmetric with build_lite_dashboard_overview: a pure builder reused
+    by the HTTP cold-miss path (under the stampede guard) and available
+    for worker pre-warm. Writing the 24h sticky mirror gives the Pro
+    overview the same last-known-good safety net the Lite path has.
     """
-    Pro dashboard overview — Lite data + price intelligence + market lookup +
-    revenue windows.
-
-    Removed from Pro computation (audit fix — frontend ignores these):
-    - top_hot_visitors (dead data, never rendered)
-    - product_opportunities (fetched separately via /opportunities/pro)
-    - ai_recommended_actions (fetched separately via /ai/actions, expensive)
-
-    Cached in Redis for 60 seconds.
-    """
-    from app.core.redis_client import cache_get, cache_set, KEY_DASHBOARD, TTL_DASHBOARD
-    cache_key = KEY_DASHBOARD.format(shop=shop) + ":pro"
-
-    cached = cache_get(cache_key)
-    if cached is not None:
-        return cached
-
+    from app.core.redis_client import (
+        cache_set, KEY_DASHBOARD, TTL_DASHBOARD,
+        KEY_DASHBOARD_STICKY, TTL_DASHBOARD_STICKY,
+    )
     from app.services.revenue_metrics import get_shop_aov, get_shop_currency, FALLBACK_AOV
+
+    cache_key = KEY_DASHBOARD.format(shop=shop) + ":pro"
     shop_currency = get_shop_currency(db, shop)
     real_aov = get_shop_aov(db, shop, currency=shop_currency)
     aov_is_real = real_aov != FALLBACK_AOV
@@ -1037,4 +1149,49 @@ def get_dashboard_overview_pro(
         "calibration":        _get_calibration_summary(db, shop),
     }
     cache_set(cache_key, result, TTL_DASHBOARD)
+    cache_set(
+        KEY_DASHBOARD_STICKY.format(shop=shop) + ":pro",
+        result, TTL_DASHBOARD_STICKY,
+    )
     return result
+
+
+@router.get("/overview/pro")
+def get_dashboard_overview_pro(
+    shop: str = Depends(require_pro_session),
+):
+    """
+    Pro dashboard overview — Lite data + price intelligence + market lookup +
+    revenue windows.
+
+    Removed from Pro computation (audit fix — frontend ignores these):
+    - top_hot_visitors (dead data, never rendered)
+    - product_opportunities (fetched separately via /opportunities/pro)
+    - ai_recommended_actions (fetched separately via /ai/actions, expensive)
+
+    Same three-tier solidity as the Lite overview: warm hit → 0 DB +
+    0 DB connections (lazy session, see get_dashboard_overview);
+    cold miss → stampede-guarded single build; lost race → sticky.
+    """
+    from app.core.redis_client import (
+        cache_get, KEY_DASHBOARD, KEY_DASHBOARD_STICKY, KEY_DASHBOARD_LOCK,
+    )
+    cache_key = KEY_DASHBOARD.format(shop=shop) + ":pro"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    def _build():
+        from app.core.database import ReadSession
+        _db = ReadSession()
+        try:
+            return build_pro_dashboard_overview(_db, shop)
+        finally:
+            _db.close()
+
+    return _serve_dashboard_with_stampede_guard(
+        cache_key,
+        KEY_DASHBOARD_STICKY.format(shop=shop) + ":pro",
+        KEY_DASHBOARD_LOCK.format(shop=shop) + ":pro",
+        _build,
+    )

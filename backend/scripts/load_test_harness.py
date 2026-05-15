@@ -327,6 +327,21 @@ async def run_harness(
     duration_s = time.perf_counter() - t0
 
     flat: list[RequestResult] = [r for m in merchant_results for r in m]
+    return _summarize(flat, duration_s, len(shops), requests_per_merchant, route)
+
+
+def _summarize(
+    flat: list[RequestResult], duration_s: float,
+    merchants: int, requests_per_merchant: int, route: str,
+) -> HarnessReport:
+    """Build the aggregate report from raw per-request results.
+
+    Split out of run_harness so the multi-process driver can MERGE the
+    raw results from every child process and compute ONE correct set of
+    percentiles. Averaging per-process percentiles would be
+    statistically wrong — percentiles must be computed over the pooled
+    sample.
+    """
     successes = [r for r in flat if r.error is None and 200 <= r.status < 400]
     errors = [r for r in flat if r.error is not None or r.status >= 400]
     latencies = sorted([r.latency_ms for r in successes]) or [0.0]
@@ -345,7 +360,7 @@ async def run_harness(
     ]
 
     return HarnessReport(
-        merchants=len(shops),
+        merchants=merchants,
         requests_per_merchant=requests_per_merchant,
         route=route,
         duration_s=round(duration_s, 3),
@@ -362,6 +377,103 @@ async def run_harness(
         query_count_p95=int(_pct(qcounts, 95)),
         query_count_max=int(max(qcounts) if qcounts else 0),
         error_samples=error_samples,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Multi-process driver — REQUIRED for truthful high-N measurement.
+#
+# A single asyncio event loop in one Python process is GIL-bound: past
+# ~a few hundred concurrent coroutines its OWN client-side scheduling +
+# JSON-decode latency dominates and it reports that as "backend
+# latency". The 2026-05-15 investigation proved this empirically — the
+# single-loop harness reported 99.58% errors / 14s p50 at 10k while an
+# independent multi-process probe showed the SAME backend serving the
+# warm path at 187 req/s / 0 errors / 313ms p95 at concurrency 32. A
+# load harness that cannot generate the load it claims is worse than no
+# harness: it manufactures false RED that buries real signal. This
+# driver shards merchants across W OS processes (true parallelism).
+# ---------------------------------------------------------------------------
+
+async def _gather_slice(
+    shops: list[str], tokens: dict[str, str], route: str,
+    rpm: int, base_url: str, *, ramp_seconds: float, think_ms: float,
+    method: str, json_body: dict | None,
+) -> list[RequestResult]:
+    """The concurrent gather without the report step (raw results)."""
+    delay_per = (ramp_seconds / max(len(shops) - 1, 1)) if ramp_seconds > 0 else 0.0
+
+    async def staged(idx, shop, token, client):
+        if delay_per > 0 and idx > 0:
+            await asyncio.sleep(idx * delay_per)
+        return await run_merchant(
+            client, shop, token, route, rpm,
+            think_ms=think_ms, method=method, json_body=json_body,
+        )
+
+    limits = httpx.Limits(
+        max_connections=max(200, 2 * len(shops)),
+        max_keepalive_connections=max(100, len(shops)),
+        keepalive_expiry=30.0,
+    )
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=60.0)
+    async with httpx.AsyncClient(
+        base_url=base_url, limits=limits, timeout=timeout,
+    ) as client:
+        tasks = [staged(i, s, tokens[s], client) for i, s in enumerate(shops)]
+        merchant_results = await asyncio.gather(*tasks)
+    return [r for m in merchant_results for r in m]
+
+
+def _slice_worker_raw(args: tuple) -> list[tuple]:
+    (shops_slice, tokens, route, rpm, base_url,
+     ramp_seconds, think_ms, method, json_body) = args
+    flat = asyncio.run(_gather_slice(
+        shops_slice, tokens, route, rpm, base_url,
+        ramp_seconds=ramp_seconds, think_ms=think_ms,
+        method=method, json_body=json_body,
+    ))
+    return [(r.shop, r.route, r.status, r.latency_ms, r.query_count, r.error)
+            for r in flat]
+
+
+def run_harness_multiproc(
+    shops: list[str], tokens: dict[str, str], route: str,
+    requests_per_merchant: int, base_url: str, *, procs: int,
+    ramp_seconds: float = 0.0, think_ms: float = 0.0,
+    method: str = "GET", json_body: dict | None = None,
+) -> HarnessReport:
+    """Shard `shops` across `procs` OS processes; pool raw results;
+    summarize once. procs=1 falls back to the in-process path."""
+    if procs <= 1:
+        return asyncio.run(run_harness(
+            shops, tokens, route, requests_per_merchant, base_url,
+            ramp_seconds=ramp_seconds, think_ms=think_ms,
+            method=method, json_body=json_body,
+        ))
+
+    import multiprocessing as _mp
+    chunks: list[list[str]] = [shops[i::procs] for i in range(procs)]
+    chunks = [c for c in chunks if c]
+    payloads = [
+        (chunk, {s: tokens[s] for s in chunk}, route,
+         requests_per_merchant, base_url, ramp_seconds, think_ms,
+         method, json_body)
+        for chunk in chunks
+    ]
+    t0 = time.perf_counter()
+    ctx = _mp.get_context("spawn")
+    with ctx.Pool(processes=len(chunks)) as pool:
+        slices = pool.map(_slice_worker_raw, payloads)
+    duration_s = time.perf_counter() - t0
+
+    flat: list[RequestResult] = [
+        RequestResult(shop=t[0], route=t[1], status=t[2],
+                      latency_ms=t[3], query_count=t[4], error=t[5])
+        for sl in slices for t in sl
+    ]
+    return _summarize(
+        flat, duration_s, len(shops), requests_per_merchant, route,
     )
 
 
@@ -441,6 +553,14 @@ def main() -> int:
                     help=("Sleep N ms between sequential requests within "
                           "the same merchant. 0 = back-to-back (synthetic); "
                           "1000-5000 = realistic browsing pace."))
+    ap.add_argument("--procs", type=int,
+                    default=min(8, os.cpu_count() or 4),
+                    help=("Driver processes (true parallelism). The "
+                          "single-asyncio path is GIL-bound past a few "
+                          "hundred concurrent merchants and reports its "
+                          "OWN client latency as backend latency — proven "
+                          "2026-05-15. Default = min(8, cpu_count). Set 1 "
+                          "for the legacy single-process behaviour."))
     ap.add_argument("--force", action="store_true",
                     help="Wipe pre-existing _loadtest_ merchants and proceed")
     ap.add_argument("--keep", action="store_true",
@@ -507,14 +627,15 @@ def main() -> int:
             )
         if args.prewarm:
             scenario += " [prewarmed]"
-        print(f"[run] scenario: {scenario}")
-        report = asyncio.run(
-            run_harness(shops, tokens, args.route,
-                        args.requests, args.base_url,
-                        ramp_seconds=args.ramp_seconds,
-                        think_ms=args.think_ms,
-                        method=args.method,
-                        json_body=json_body),
+        print(f"[run] scenario: {scenario} | driver procs={args.procs}")
+        report = run_harness_multiproc(
+            shops, tokens, args.route,
+            args.requests, args.base_url,
+            procs=args.procs,
+            ramp_seconds=args.ramp_seconds,
+            think_ms=args.think_ms,
+            method=args.method,
+            json_body=json_body,
         )
         passed = print_report(
             report,

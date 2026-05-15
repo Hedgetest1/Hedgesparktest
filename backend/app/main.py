@@ -541,23 +541,20 @@ async def dashboard_rate_limit_middleware(request: Request, call_next):
             _middleware_log.warning("dashboard_rate_limit: identity-derive failed: %s", exc)
 
         bucket_key = f"{shop_fp}:{ip}"
-        used_local_fallback = False
-        try:
-            from app.core.redis_client import _client
-            rc = _client()
-            if rc is None:
-                used_local_fallback = True
-            else:
-                key = f"hs:rl:dash:{bucket_key}"
-                count = rc.incr(key)
-                if count == 1:
-                    rc.expire(key, 60)
-                if count > 120:
-                    from fastapi.responses import JSONResponse
-                    return JSONResponse({"detail": "Too many requests."}, status_code=429)
-        except Exception as exc:
-            _middleware_log.warning("dashboard_rate_limit: redis check failed, using local fallback: %s", exc)
-            used_local_fallback = True
+        # The Redis sliding-window check is BLOCKING (sync redis-py).
+        # Calling it inline in this `async def` middleware stalled the
+        # worker's event loop for the Redis round-trip on EVERY /pro/ +
+        # /merchant/ request — serializing all concurrent requests on
+        # that worker (the pre-2026-05-15 defect surfaced by the 10k
+        # investigation). Dispatch to the threadpool, same pattern as
+        # the cache-first middleware (run_in_threadpool, L429).
+        from starlette.concurrency import run_in_threadpool
+        over_limit, used_local_fallback = await run_in_threadpool(
+            _dashboard_rl_redis_check, bucket_key,
+        )
+        if over_limit:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "Too many requests."}, status_code=429)
 
         if used_local_fallback:
             allowed = _dashboard_rl_local_allow(bucket_key)
@@ -591,6 +588,38 @@ def _dashboard_rl_local_allow(bucket_key: str) -> bool:
             return False
         bucket.append(now)
         return True
+
+
+def _dashboard_rl_redis_check(bucket_key: str) -> tuple[bool, bool]:
+    """Blocking Redis sliding-window check (sync redis-py incr/expire).
+
+    MUST run in the threadpool — never inline in the async middleware,
+    or the sync round-trip stalls the worker event loop and serializes
+    every concurrent /pro/ + /merchant/ request (the defect this
+    refactor closes). Returns (over_limit, used_local_fallback);
+    fail-CLOSED-with-fallback: Redis miss/error → defer to the bounded
+    in-process counter, never unconditionally allow.
+    """
+    try:
+        from app.core.redis_client import _client
+        from app.core.silent_fallback import record_silent_return
+        rc = _client()
+        if rc is None:
+            record_silent_return("dashboard_rate_limit.redis_down")
+            return (False, True)
+        key = f"hs:rl:dash:{bucket_key}"
+        count = rc.incr(key)
+        if count == 1:
+            rc.expire(key, 60)
+        return (count > 120, False)
+    except Exception as exc:
+        from app.core.silent_fallback import record_silent_return
+        _middleware_log.warning(
+            "dashboard_rate_limit: redis check failed, using local fallback: %s",
+            exc,
+        )
+        record_silent_return("dashboard_rate_limit.redis_check_failed")
+        return (False, True)
 
 
 @app.middleware("http")
