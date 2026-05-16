@@ -74,9 +74,12 @@ BIG_TABLES = ("shop_orders", "events", "nudge_events", "visitor_purchase_session
 # ---------------------------------------------------------------------------
 QUERIES: dict[str, dict] = {
     # customer_churn_scorer.score_shop_customers (customer_churn.py:183-207).
-    # UNCACHED request path (GET /pro/customer-churn). NO created_at window on
-    # the scan -> full per-shop lifetime history GROUP BY customer_email.
-    # Agent-flagged #1 likely 10k cliff.
+    # NO created_at window -> full per-shop lifetime GROUP BY customer_email.
+    # CLIFF BY DESIGN, CACHE-PROTECTED: this query genuinely disk-sorts at
+    # scale (that is the finding) — the endpoint is made safe by the
+    # cache-first + stampede-lock fix (commit 62541cf), NOT by the query
+    # shape. The harness correctly keeps flagging it CLIFF (exit 1) so the
+    # underlying cost stays visible; that is expected, not an open bug.
     "churn2": {
         "src": "customer_churn_scorer.py:183-207  (GET /pro/customer-churn, uncached)",
         "sql": """
@@ -93,6 +96,7 @@ QUERIES: dict[str, dict] = {
               AND customer_email IS NOT NULL AND customer_email <> ''
             GROUP BY customer_email
             HAVING COUNT(*) >= 2
+            ORDER BY COUNT(*) DESC, customer_email
             LIMIT 5000
         """,
         "params": lambda: {
@@ -256,8 +260,18 @@ def _seed(session, orders: int, customers: int, history_days: int,
     # DETERMINISTIC distribution (no random()): every run produces a
     # byte-identical table -> identical ANALYZE stats -> identical planner
     # decision. A stochastic benchmark whose plan flips run-to-run is not
-    # truth; a reproducible one is. created_at is spread by a hash of g so
-    # the per-customer history is interleaved (realistic), not block-ordered.
+    # truth; a reproducible one is.
+    #
+    # HONEST scope (adversarial-audit 2026-05-16d #3): this is a
+    # conservative SPILL/SEQ-SCAN FLOOR check, NOT a production-fidelity
+    # data model. The customer mapping is deterministically COUNT-SKEWED
+    # (the floor(... power(...,2.5)) below concentrates orders onto a
+    # whale band, ~Zipfian — so the GROUP BY cardinality the planner
+    # estimates is representative of skewed prod, not the perfectly-flat
+    # `g % customers` the prior version produced). created_at is still
+    # g-derived (correlated, not independent scatter) — adequate for the
+    # coarse plan-shape question this harness answers, not a claim of
+    # statistical fidelity.
     if bg_orders > 0:
         session.execute(
             text("""
@@ -293,8 +307,8 @@ def _seed(session, orders: int, customers: int, history_days: int,
                 'synth_' || g,
                 (10 + (g % 191))::numeric(10,2),
                 'EUR',
-                'cid_' || (g % :customers),
-                'cust' || (g % :customers) || '@synthetic.example',
+                'cid_' || floor(:customers * power(((g * 2654435761) % 100000)::float / 100000.0, 2.5))::int,
+                'cust' || floor(:customers * power(((g * 2654435761) % 100000)::float / 100000.0, 2.5))::int || '@synthetic.example',
                 '[]'::jsonb,
                 now() - (((g * 2654435761) % :history_days)
                          || ' days')::interval,
@@ -395,6 +409,19 @@ def _explain(session, name: str, spec: dict) -> dict:
     if "external merge  Disk:" in plan or re.search(r"Sort Method: external", plan):
         m = re.search(r"external merge\s+Disk:\s*(\d+)kB", plan)
         flags.append(f"DISK-SORT:{m.group(1) + 'kB' if m else 'spilled'}")
+    # HashAggregate spill (PG13+): "HashAggregate ... Batches: N  Memory
+    # Usage: XkB  Disk Usage: YkB" with N>1. The ORIGINAL detector caught
+    # ONLY Sort external-merge — blind to hash-agg spill, which is the
+    # DOMINANT spill mode for GROUP BY (the exact churn-class shape this
+    # harness exists to hunt). Adversarial-audit finding 2026-05-16d: the
+    # TIER-B "0 cliffs" verdict was unsound until this was added. Also
+    # catch Hash Join multi-batch (Batches: N>1 = spilled to disk).
+    hm = re.search(r"Disk Usage:\s*(\d+)kB", plan)
+    if hm:
+        flags.append(f"HASH-SPILL:{hm.group(1)}kB")
+    bm = re.search(r"\bBatches:\s*(\d+)", plan)
+    if bm and int(bm.group(1)) > 1 and not hm:
+        flags.append(f"HASH-BATCHES:{bm.group(1)}")
     exec_m = re.search(r"Execution Time:\s*([\d.]+) ms", plan)
     exec_ms = float(exec_m.group(1)) if exec_m else None
     scanned_m = re.search(r"on shop_orders[^\n]*\(actual time=[^\n]*rows=(\d+)", plan)

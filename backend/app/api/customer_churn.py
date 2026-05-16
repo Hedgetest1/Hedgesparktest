@@ -46,8 +46,13 @@ _LOCK_WAIT_BUDGET_SEC = 2.0
 # caller's `limit` — it only slices the already-sorted result), then serve
 # any caller `limit` ≤ this from the one cached entry. Keying by shop only
 # (not by limit) means the expensive query cannot be cache-busted by varying
-# `limit`, and a limit=50 slice of the cached top-500 is byte-identical to
-# computing with limit=50 (both are the top-50 of the same desc-sorted list).
+# `limit`. A limit=50 slice of the cached top-500 equals computing with
+# limit=50 ONLY because score_shop_customers' SQL now has a deterministic
+# `ORDER BY COUNT(*) DESC, customer_email` before its `LIMIT 5000` cap
+# (added 2026-05-16d after an adversarial audit found the prior cap was a
+# NONDETERMINISTIC 5000-row sample for >5000-customer merchants — the
+# slice-equivalence claim was false without it). If that ORDER BY is ever
+# removed, this equivalence breaks for >5000-customer shops — do not.
 _MAX_LIMIT = 500
 
 

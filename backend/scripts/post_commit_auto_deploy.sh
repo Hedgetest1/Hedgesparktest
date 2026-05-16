@@ -40,6 +40,38 @@ log()  { printf "%b[auto-deploy] %s%b\n" "$YEL" "$1" "$NC"; }
 ok()   { printf "%b[auto-deploy] ✓ %s%b\n" "$GREEN" "$1" "$NC"; }
 fail() { printf "%b[auto-deploy] ✗ %s%b\n" "$RED" "$1" "$NC" >&2; }
 
+# Single source of truth for the health-probe budget. Referenced by
+# _health_probe_with_backoff AND every operator-facing FAIL message, so a
+# budget change can never again leave a stale "after 15s" string lying in
+# the log during the exact incident the log exists for (adversarial-audit
+# finding 2026-05-16d #5).
+readonly HEALTH_PROBE_BUDGET=60
+
+# The post-commit FAIL path used to be INERT: git discards post-commit hook
+# exit codes, no rollback exists yet (Phase 2.0), and fail() is only stderr
+# text — so a genuinely-dead backend deployed silently (adversarial-audit
+# finding 2026-05-16d #4). This emits a CRITICAL ops_alert so the capillary
+# probe / triage cycle actually surfaces a failed deploy. Best-effort,
+# never blocks the (already-completed) commit.
+_deploy_fail_alert() {
+    fail "$1"
+    ./venv/bin/python - "$1" >> "$LOG" 2>&1 <<'PY' || log "ops_alert emit failed (non-blocking)"
+import subprocess, sys
+from app.core.database import SessionLocal
+from app.services.alerting import write_alert
+sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                      capture_output=True, text=True).stdout.strip()
+db = SessionLocal()
+try:
+    write_alert(db, severity="critical", source="auto_deploy",
+                alert_type="backend_deploy_health_fail",
+                summary=sys.argv[1], detail={"commit": sha})
+    db.commit()
+finally:
+    db.close()
+PY
+}
+
 # Health probe with exponential backoff. Born 2026-04-22 after the
 # fixed `sleep 2 + curl once` pattern produced a false-FAIL on commit
 # a423c44 when the backend took > 2s to bind to :8000 post-reload.
@@ -51,17 +83,23 @@ fail() { printf "%b[auto-deploy] ✗ %s%b\n" "$RED" "$1" "$NC" >&2; }
 # Budget 15s → 60s (2026-05-16): the 2026-05-15 Stage-4 bump to 8
 # uvicorn workers made a cold `pm2 reload` take >15s for all workers
 # to import the full app graph + bind :8000. The 15s budget produced
-# a false-FAIL on commit 62541cf ("health probe FAILED after 15s
-# budget") while the backend was in fact healthy ~seconds later
-# (ops_alerts 0/0, /system/health 200). Same born-after-incident
-# discipline as the original 2026-04-22 note: the probe must outlast
-# the worst-case cold start, not the typical one. 60s stays bounded —
-# a genuinely-dead backend still fails the deploy within a minute.
+# a false-FAIL on commit 62541cf while the backend was in fact healthy
+# ~seconds later (ops_alerts 0/0, /system/health 200). Same born-
+# after-incident discipline as the original 2026-04-22 note: the probe
+# must outlast the worst-case cold start, not the typical one.
+#
+# Honest scope (adversarial-audit 2026-05-16d #4): the probe is
+# OBSERVABILITY, not a gate. `pm2 reload` already swapped the code in
+# before this runs; git discards post-commit hook exit codes; no
+# automatic rollback exists until Phase 2.0. The 60s budget therefore
+# only governs WHEN the FAIL verdict is emitted — and FAIL now emits a
+# CRITICAL ops_alert (_deploy_fail_alert) so a genuinely-dead backend
+# is no longer silent. It is NOT claimed to "block a bad deploy".
 _health_probe_with_backoff() {
     local url="$1"
     local delay=1
     local total=0
-    local budget=60
+    local budget="$HEALTH_PROBE_BUDGET"
     while [ "$total" -lt "$budget" ]; do
         if curl -sf -o /dev/null --max-time 3 "$url"; then
             return 0
@@ -220,7 +258,7 @@ if [ "$BACKEND_TOUCHED" = "1" ] && [ "$DASH_TOUCHED" = "0" ]; then
             ok "backend reload green"
             _reload_workers
         else
-            fail "backend reload but health probe FAILED after 15s budget"
+            _deploy_fail_alert "backend reload but health probe FAILED after ${HEALTH_PROBE_BUDGET}s budget"
             exit 1
         fi
     else
@@ -239,7 +277,7 @@ if [ "$BACKEND_TOUCHED" = "1" ] && [ "$DASH_TOUCHED" = "1" ]; then
             ok "backend reload green"
             _reload_workers
         else
-            fail "backend reload but health probe FAILED after 15s budget"
+            _deploy_fail_alert "backend reload but health probe FAILED after ${HEALTH_PROBE_BUDGET}s budget"
             exit 1
         fi
     fi

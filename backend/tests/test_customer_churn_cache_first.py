@@ -15,6 +15,15 @@ These tests lock the two contract properties of that fix:
      `score_shop_customers` call is OFF the per-request hot path on a
      cache hit. This is the entire point of the fix; if a refactor
      reintroduces a per-request heavy query, this test fails.
+  3. End-to-end through REAL Redis (not a monkeypatched cache
+     boundary): a cache hit issues ZERO DB queries (X-Query-Count
+     header == 0). Zero queries ⟹ the get_lazy_read_db proxy never
+     checks out a pooled connection (by _LazyReadSession's definition;
+     proven by composition, not merely asserted). Added 2026-05-16d
+     after an adversarial audit correctly flagged that the original
+     tests stubbed the cache boundary and conftest overrides
+     get_lazy_read_db — so the load-bearing "0 conns on hit" claim
+     was exercised by zero tests.
 """
 from __future__ import annotations
 
@@ -117,3 +126,66 @@ def test_cache_miss_computes_then_writes_back(client, monkeypatch):
     assert written["currency"] == "EUR"
     assert resp.json()["total_customers_scored"] == 10
     fastapi_app.dependency_overrides.pop(require_pro_session, None)
+
+
+def _churn_redis_clear(shop: str) -> None:
+    from app.core.redis_client import _client
+    rc = _client()
+    if rc is not None:
+        rc.delete(customer_churn._cache_key(shop),
+                  customer_churn._lock_key(shop))
+
+
+def test_cache_hit_is_zero_db_queries_via_real_redis(client, monkeypatch):
+    """END-TO-END through REAL Redis (cache boundary NOT stubbed): the
+    miss computes + writes real Redis; the hit is served from real
+    Redis with X-Query-Count == 0. Zero queries ⟹ the lazy read dep
+    never checks out a pooled connection. This is the proof the prior
+    tests lacked (Agent finding #6)."""
+    shop = "test-shop-a.myshopify.com"
+    fastapi_app.dependency_overrides[require_pro_session] = lambda: shop
+    _churn_redis_clear(shop)
+    # Stub ONLY the heavy compute (the SQL plan is measured by the
+    # harness, not here) — the cache path itself runs against real
+    # Redis. get_shop_currency stubbed so the miss is deterministic.
+    monkeypatch.setattr(customer_churn, "score_shop_customers",
+                        lambda db, shop, limit: _full_payload()["customers"])
+    monkeypatch.setattr(customer_churn, "get_shop_currency",
+                        lambda db, shop: "EUR")
+    try:
+        miss = client.get("/pro/customer-churn?limit=50")
+        assert miss.status_code == 200
+
+        hit = client.get("/pro/customer-churn?limit=50")
+        assert hit.status_code == 200
+        # THE structural proof: a real-Redis cache hit does zero DB
+        # work → the get_lazy_read_db proxy opens zero connections.
+        assert hit.headers.get("X-Query-Count") == "0", (
+            f"cache hit issued DB queries "
+            f"(X-Query-Count={hit.headers.get('X-Query-Count')}) — the "
+            f"heavy query / lazy session is back on the hot path")
+        # Real Redis round-trip integrity (json.dumps(default=str) →
+        # json.loads): the hit body equals the miss body exactly.
+        assert hit.json() == miss.json()
+        assert hit.json()["by_risk_band"] == {"critical": 4, "high": 3,
+                                              "medium": 2, "low": 1}
+    finally:
+        _churn_redis_clear(shop)
+        fastapi_app.dependency_overrides.pop(require_pro_session, None)
+
+
+def test_wait_for_cache_returns_payload_when_builder_holds_lock(monkeypatch):
+    """Covers the stampede wait-loop against REAL Redis (zero coverage
+    before, Agent finding #6): a concurrent builder holds the lock and
+    has written the cache → _wait_for_cache must return that payload
+    rather than recompute."""
+    shop = "test-shop-wait.myshopify.com"
+    _churn_redis_clear(shop)
+    try:
+        customer_churn._write_cached(shop, _full_payload())
+        got = customer_churn._wait_for_cache(shop)
+        assert got is not None
+        assert got["currency"] == "EUR"
+        assert len(got["customers"]) == 10
+    finally:
+        _churn_redis_clear(shop)

@@ -196,6 +196,7 @@ def score_shop_customers(
                   AND customer_email IS NOT NULL AND customer_email <> ''
                 GROUP BY customer_email
                 HAVING COUNT(*) >= 2
+                ORDER BY COUNT(*) DESC, customer_email
                 LIMIT 5000
                 """
             ),
