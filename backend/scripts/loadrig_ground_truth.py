@@ -211,6 +211,27 @@ def _seed_merchant_data(shops: list[str], n_orders: int,
         db.close()
 
 
+def _prewarm(shops: list[str]) -> int:
+    """Model production reality: the aggregation worker prewarms every
+    active merchant's dashboard cache+sticky each cycle, so a real 10k
+    digest-herd hits PREWARMED merchants (sticky present) — not the
+    all-cold-no-sticky synthetic extreme. Runs the EXACT production
+    prewarm path so the storm measures the realistic state."""
+    from app.api.dashboard import prewarm_lite_dashboard
+    from app.core.database import ReadSession
+    n = 0
+    for s in shops:
+        db = ReadSession()
+        try:
+            prewarm_lite_dashboard(db, s)
+            n += 1
+        except Exception:
+            pass
+        finally:
+            db.close()
+    return n
+
+
 def _purge_loadtest_data() -> None:
     """No orphan data (§2 r7): cleanup_merchants only removes merchant
     rows; the seeded orders/events are keyed by shop_domain and must be
@@ -251,6 +272,10 @@ def main() -> int:
                          "data-heavy /overview cold build, not empty path")
     ap.add_argument("--seed-events", type=int, default=0,
                     help="events PER merchant (data-heavy path)")
+    ap.add_argument("--prewarm", action="store_true",
+                    help="prewarm each merchant's dashboard cache+sticky "
+                         "(models the aggregation worker — the REALISTIC "
+                         "10k digest-herd state, not all-cold synthetic)")
     ap.add_argument("--keep", action="store_true",
                     help="skip cleanup (debug only)")
     args = ap.parse_args()
@@ -278,6 +303,10 @@ def main() -> int:
             print(f"seeded data-heavy: {o:,} orders + {e:,} events across "
                   f"{len(shops)} merchants ({args.seed_orders}o/"
                   f"{args.seed_events}e each) — /overview real cold build")
+        if args.prewarm:
+            pw = _prewarm(shops)
+            print(f"prewarmed {pw}/{len(shops)} merchants "
+                  f"(models the aggregation worker — realistic herd state)")
         per = max(1, len(shops) // args.procs)
         slices = [shops[i:i + per] or shops
                   for i in range(0, len(shops), per)][:args.procs]

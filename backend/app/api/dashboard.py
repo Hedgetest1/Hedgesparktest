@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -983,6 +984,69 @@ def _wait_for_dashboard_cache(cache_key: str) -> Any | None:
     return None
 
 
+# 4th tier — GLOBAL concurrent-cold-build admission. Born 2026-05-16f
+# after the ground-truth load rig MEASURED the real digest-herd /
+# post-deploy-flush cliff: the stampede lock is PER-SHOP, so a storm of
+# N DISTINCT cold merchants spawns N builders, each pinning a pooled
+# conn for the ~2s ~18-query build. 800 distinct vs PgBouncer pool=80 →
+# 320 queued → 30s pool_timeout → 41% 500s (cl_waiting=83, broker-
+# proven). Capping concurrent cold builds well below the pool keeps
+# headroom for every other endpoint AND collapses the storm onto the
+# already-existing sticky last-known-good (the realistic herd is
+# aggregation-worker-prewarmed merchants → sticky hit, 0 error). NOT
+# raising pool_size — that just moves the cliff (the band-aid the
+# founder explicitly forbade).
+_DASHBOARD_COLD_BUILD_BUDGET = int(
+    os.getenv("DASHBOARD_COLD_BUILD_BUDGET", "40"))  # < pool_size=80
+_DASHBOARD_CB_KEY = "hs:dash:cb"
+# > _DASHBOARD_LOCK_TTL_SEC so a crashed/hung builder's slot self-heals
+# (purged each admit) rather than permanently consuming the budget.
+_DASHBOARD_CB_STALE_SEC = 35
+
+
+def _cold_build_admit() -> str | None:
+    """Return a release token if a global cold-build slot was taken,
+    None if the budget is full (caller must shed, not build). Crash-
+    safe: ZSET of {token: start_epoch}; stale entries (dead builders)
+    purged every call. Degrade-open: Redis down → admit ('degraded'),
+    same contract as _acquire_dashboard_lock. The zcard→zadd window can
+    let a few extra through under burst — tolerated: budget 40 ≪ pool
+    80, a small overshoot never exhausts the pool (the structural
+    property is the cap, not exactness; a Lua CAS would be over-eng)."""
+    try:
+        import uuid
+        from app.core.redis_client import _client
+        from app.core.silent_fallback import record_silent_return
+        rc = _client()
+        if rc is None:
+            record_silent_return("dashboard.cold_build_admit_redis_down")
+            return "degraded"
+        now = time.time()
+        rc.zremrangebyscore(_DASHBOARD_CB_KEY, 0,
+                            now - _DASHBOARD_CB_STALE_SEC)
+        if rc.zcard(_DASHBOARD_CB_KEY) >= _DASHBOARD_COLD_BUILD_BUDGET:
+            return None
+        token = uuid.uuid4().hex
+        rc.zadd(_DASHBOARD_CB_KEY, {token: now})
+        rc.expire(_DASHBOARD_CB_KEY, _DASHBOARD_CB_STALE_SEC + 5)
+        return token
+    except Exception as exc:
+        log.warning("dashboard: cold-build admit failed: %s", exc)
+        return "degraded"  # degrade-open: better to build than to wedge
+
+
+def _cold_build_release(token: str | None) -> None:
+    if not token or token == "degraded":
+        return
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.zrem(_DASHBOARD_CB_KEY, token)
+    except Exception as exc:
+        log.warning("dashboard: cold-build release failed: %s", exc)
+
+
 def _serve_dashboard_with_stampede_guard(
     cache_key: str, sticky_key: str, lock_key: str, builder,
 ) -> Any:
@@ -999,6 +1063,26 @@ def _serve_dashboard_with_stampede_guard(
     """
     from app.core.redis_client import cache_get
     if _acquire_dashboard_lock(lock_key):
+        token = _cold_build_admit()
+        if token is None:
+            # 4th tier: global cold-build budget full. Do NOT add a
+            # ~2s pooled-conn build to an already-saturated pool (the
+            # measured 2026-05-16f digest-herd cliff). Shed to last-
+            # known-good — the realistic herd is prewarmed merchants
+            # → sticky hit, 0 error, ≤24h-stale (the §0 "never
+            # problematic for the merchant" property).
+            sticky = cache_get(sticky_key)
+            if sticky is not None:
+                return sticky
+            waited = _wait_for_dashboard_cache(cache_key)
+            if waited is not None:
+                return waited
+            # Brand-new shop, no sticky, budget full (rare — onboarded
+            # merchants are prewarmed): retry admission once after the
+            # bounded wait (slots drain fast). budget ≪ pool, so an
+            # admitted build's conn acquisition is INSTANT — bounded-
+            # slow, never the 30s pool_timeout cliff.
+            token = _cold_build_admit()
         try:
             return builder()
         except Exception as exc:
@@ -1007,6 +1091,8 @@ def _serve_dashboard_with_stampede_guard(
             if sticky is not None:
                 return sticky
             raise
+        finally:
+            _cold_build_release(token)
     sticky = cache_get(sticky_key)
     if sticky is not None:
         return sticky

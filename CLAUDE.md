@@ -1102,6 +1102,7 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:dash:{shop}` | Dashboard /overview cache (Lite+Pro cold-build payload). The c≈64 pool-timeout-cliff fix (8291d0d): lazy-DB warm hit serves this with 0 conns | 6min |
 | `hs:dash:{shop}:sticky` | Dashboard last-known-good sticky mirror — written alongside every cache_set; served on a contended cold miss instead of piling ~18-query builds (8291d0d) | 24h |
 | `hs:dash:lock:{shop}` | Dashboard cold-build SETNX stampede lock — single-builder window ceiling so a cache miss storm can't fan out N concurrent ~18-query builds (8291d0d) | 30s |
+| `hs:dash:cb` | Dashboard 4th-tier GLOBAL concurrent-cold-build admission ZSET (member=build-token, score=start-epoch). Caps concurrent cold builds < PgBouncer pool so a DISTINCT-merchant digest-herd can't pool-starve (the per-shop lock above doesn't help distinct shops); excess sheds to `:sticky`. Stale entries (crashed builders) self-purge >35s. Born 2026-05-16f after the ground-truth rig measured the 41%-err distinct-cold cliff | ~40s (sliding, ZSET self-prunes) |
 
 Curated list — backend uses ~150 prefixes total; rest tracked in
 owning modules. Verified by `audit_claude_md_redis_keys.py`
