@@ -1096,11 +1096,10 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:action_candidates:v1:{shop}` | Pro action-candidates 60s cache (1300ms recompute eliminator) | 60s |
 | `hs:entitlement_scan:cursor` | agent_worker entitlement scan round-robin cursor (per-cycle resume position so 10k-merchant scan splits across cycles without restart-from-zero) | 24h |
 | `hs:rl:track_purchase:{ip}:{shop}` | Storefront purchase tracker rate-limit counter (60s window, fail-open per tracker doctrine) | 60s |
-| `hs:warn:rev_metrics:no_orders:{shop}:{currency_or_any}` | revenue_metrics WARNING rate-limit — "no orders found" fallback path per (shop, currency); SETNX EX, first emitter logs WARNING, subsequent DEBUG. Fail-open. Born 2026-05-15 from §12 10k load test surfacing sync log I/O dominating latency on no-order shops | 1h |
-| `hs:warn:rev_metrics:bad_aov:{shop}:{currency_or_any}` | revenue_metrics WARNING rate-limit — "computed AOV <=0" fallback path per (shop, currency); same SETNX EX pattern as no_orders | 1h |
-| `hs:warn:rev_metrics:currency_primary:{shop}` | revenue_metrics WARNING rate-limit — `get_shop_currency` primary_currency lookup exception; born 2026-05-15 from Agent independent audit of revenue_metrics rate-limit sprint, surfaced 3 missed sibling sites on same hot-path | 1h |
-| `hs:warn:rev_metrics:currency_fallback:{shop}` | revenue_metrics WARNING rate-limit — `get_shop_currency` MODE() fallback lookup exception; same hot-path as `currency_primary` | 1h |
-| `hs:warn:rev_metrics:timezone_iana:{shop}` | revenue_metrics WARNING rate-limit — `get_shop_timezone` iana_timezone lookup exception; called per dashboard paint by aggregation + forecast | 1h |
+| `hs:warn:rev_metrics:{class}:{shop}:{currency_or_any}` | revenue_metrics WARNING rate-limit. ONE code constant `_WARN_RATELIMIT_PREFIX` (revenue_metrics.py:176); `{class}` ∈ {`no_orders`, `bad_aov`, `currency_primary`, `currency_fallback`, `timezone_iana`} — the hot-path fallback/lookup paths (no orders, AOV≤0, get_shop_currency primary/MODE fallback, get_shop_timezone iana). SETNX EX, first emitter logs WARNING then DEBUG. Fail-open. Born 2026-05-15 §12 10k load test (sync log I/O dominating no-order-shop latency). Documented as one canonical row 2026-05-16 (the 5-row form was doc-drift: the 5 classes are runtime-interpolated, not 5 code constants) | 1h |
+| `hs:dash:{shop}` | Dashboard /overview cache (Lite+Pro cold-build payload). The c≈64 pool-timeout-cliff fix (8291d0d): lazy-DB warm hit serves this with 0 conns | 6min |
+| `hs:dash:{shop}:sticky` | Dashboard last-known-good sticky mirror — written alongside every cache_set; served on a contended cold miss instead of piling ~18-query builds (8291d0d) | 24h |
+| `hs:dash:lock:{shop}` | Dashboard cold-build SETNX stampede lock — single-builder window ceiling so a cache miss storm can't fan out N concurrent ~18-query builds (8291d0d) | 30s |
 
 Curated list — backend uses ~150 prefixes total; rest tracked in
 owning modules. Verified by `audit_claude_md_redis_keys.py`

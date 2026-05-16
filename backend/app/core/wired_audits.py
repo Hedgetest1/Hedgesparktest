@@ -113,6 +113,16 @@ def audit_names() -> frozenset[str]:
 OPERATOR_ONLY_AUDITS: frozenset[str] = frozenset({
     "audit_redis_footprint.py",
     "audit_test_flake_detection.py",
+    # §23.1 trim (2026-05-07) moved these from hard-gate to ADVISORY
+    # (exit 0 by default; emit on `--strict`/operator demand, not every
+    # commit). They keep the shim import (still in WIRED_AUDITS, so
+    # audit_audit_telemetry_coverage still enforces it) but expecting
+    # them to emit on a SCHEDULE is now a category error — the same
+    # reasoning that exempted the 2 above. Added 2026-05-16 to close
+    # the recurring `invariant:silent_audits` false-warning the trim
+    # created but never reconciled (§24.3 trim-review reflex).
+    "audit_commit_devils_advocate.py",
+    "audit_da_evidence.py",
 })
 
 

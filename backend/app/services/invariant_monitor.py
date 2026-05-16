@@ -377,6 +377,7 @@ _AUDITS: list[tuple[str, str, str]] = [
     ("audit_model_drift.py", "invariant_regression", "invariant:model_drift"),
     ("audit_n_plus_one.py", "invariant_regression", "invariant:n_plus_one"),
     ("audit_orphan_card_components.py", "invariant_regression", "invariant:orphan_card_components"),
+    ("audit_pgbouncer_config_drift.py", "invariant_regression", "invariant:pgbouncer_config_drift"),
     ("audit_pro_nav_section_parity.py", "invariant_regression", "invariant:pro_nav_section_parity"),
     ("audit_redis_client_imports.py", "invariant_regression", "invariant:redis_client_imports"),
     ("audit_response_models.py", "invariant_regression", "invariant:response_models"),

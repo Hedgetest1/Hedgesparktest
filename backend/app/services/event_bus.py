@@ -474,21 +474,47 @@ def aggregate_by_source(
 # Retention
 # ---------------------------------------------------------------------------
 
+# Batched-delete invariant (10k structural, 2026-05-16): same class as
+# retention_task.py — a single unbatched `DELETE FROM analytics_events`
+# over the retention backlog is an unbounded long-txn on a high-volume
+# table. Batched id-scoped LIMIT + commit-per-batch (proven in-repo
+# pattern, data_retention.py). Locked by audit_retention_batched.py.
+_EVENT_RETENTION_BATCH_SIZE = int(os.getenv("RETENTION_DELETE_BATCH_SIZE", "5000"))
+_EVENT_RETENTION_MAX_BATCHES = int(os.getenv("RETENTION_DELETE_MAX_BATCHES", "50000"))
+
+
 def cleanup_old_events(db: Session) -> int:
-    """Delete analytics_events older than the retention window. Called by
-    the agent_worker on a monthly cadence."""
+    """Delete analytics_events older than the retention window, batched
+    + committed per batch so a large backlog never holds a long
+    transaction on the high-volume analytics_events table. Called by
+    the agent_worker on a monthly cadence. Best-effort: a failed batch
+    rolls back only that batch; committed batches are retained and the
+    next run resumes."""
     cutoff_ms = _now_ms() - _RETENTION_DAYS * 86400 * 1000
+    stmt = sql_text(
+        "DELETE FROM analytics_events WHERE id IN ("
+        "SELECT id FROM analytics_events WHERE ts_ms < :cutoff "
+        "ORDER BY id LIMIT :lim)"
+    )
+    total = 0
     try:
-        result = db.execute(
-            sql_text("DELETE FROM analytics_events WHERE ts_ms < :cutoff"),
-            {"cutoff": cutoff_ms},
+        for _ in range(_EVENT_RETENTION_MAX_BATCHES):
+            n = db.execute(
+                stmt, {"cutoff": cutoff_ms, "lim": _EVENT_RETENTION_BATCH_SIZE}
+            ).rowcount or 0
+            db.commit()
+            total += n
+            if n < _EVENT_RETENTION_BATCH_SIZE:
+                return total
+        log.warning(
+            "event_bus: retention circuit breaker hit (%d rows) — "
+            "resuming next run", total,
         )
-        db.commit()
-        return result.rowcount or 0
+        return total
     except Exception as exc:
         log.warning("event_bus: retention cleanup failed: %s", exc)
         try:
             db.rollback()
         except Exception as exc2:
             log.warning("event_bus: rollback after retention cleanup failed: %s", exc2)
-        return 0
+        return total

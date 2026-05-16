@@ -933,6 +933,55 @@ else
     tail -10 /tmp/preflight_rtw.log
 fi
 
+# Retention DELETEs must stay id-scoped batched: an unbatched table-
+# wide DELETE on the ~100M-row hot-path events table is a multi-minute
+# long-txn that stalls tracker ingestion for every merchant at 10k.
+# Born 2026-05-16. KEEP STRICT.
+step "Retention batched-delete audit (audit_retention_batched.py)"
+if "$PY" scripts/audit_retention_batched.py > /tmp/preflight_retb.log 2>&1; then
+    ok "every retention DELETE is id-scoped batched (commit-per-batch safe)"
+else
+    bad "unbatched retention DELETE reintroduced — see /tmp/preflight_retb.log"
+    tail -15 /tmp/preflight_retb.log
+fi
+
+# b35b1ac 20s SET LOCAL is request-only BY DESIGN — workers run
+# multi-minute jobs (retention/GDPR) and must NOT inherit it. If a
+# worker imports a request DB dep its long jobs silently die at 20s.
+# Born 2026-05-16 (ledger #6 P2). KEEP STRICT.
+step "Workers no request-DB-dep audit (audit_workers_no_request_db_dep.py)"
+if "$PY" scripts/audit_workers_no_request_db_dep.py > /tmp/preflight_wnrd.log 2>&1; then
+    ok "no worker imports get_db/get_read_db/get_lazy_read_db/Depends"
+else
+    bad "a worker uses a request-scoped DB dep — see /tmp/preflight_wnrd.log"
+    tail -10 /tmp/preflight_wnrd.log
+fi
+
+# Every session-yielding FastAPI dep must be in conftest's
+# dependency_overrides or tests escape the hermetic SAVEPOINT against
+# the live test DB (the get_lazy_read_db 18-test break, ledger #15).
+# Born 2026-05-16. KEEP STRICT.
+step "Conftest DB-override coverage (audit_conftest_db_override_coverage.py)"
+if "$PY" scripts/audit_conftest_db_override_coverage.py > /tmp/preflight_cdoc.log 2>&1; then
+    ok "all session-yielding deps overridden in tests/conftest.py"
+else
+    bad "session-yielding dep not overridden — see /tmp/preflight_cdoc.log"
+    tail -10 /tmp/preflight_cdoc.log
+fi
+
+# The c=768 10k concurrency envelope depends on the LIVE pgbouncer
+# tuning (pool 80 / max_db 150 / max_client 5000). scripts/pgbouncer.ini
+# is its version-controlled mirror — drift means a rebuild silently
+# collapses the envelope. Degrade-open when /etc copy unreadable.
+# Born 2026-05-16 (ledger #14). KEEP STRICT.
+step "PgBouncer config drift (audit_pgbouncer_config_drift.py)"
+if "$PY" scripts/audit_pgbouncer_config_drift.py > /tmp/preflight_pgbd.log 2>&1; then
+    ok "scripts/pgbouncer.ini mirrors the live 10k-tuned config"
+else
+    bad "pgbouncer repo/live drift — see /tmp/preflight_pgbd.log"
+    tail -12 /tmp/preflight_pgbd.log
+fi
+
 # ---------------------------------------------------------------------------
 # 2d. Alembic drift gate — the hard gate. Any drift between Base.metadata
 # and the live DB schema blocks the commit. This is the top-1-world bar:
