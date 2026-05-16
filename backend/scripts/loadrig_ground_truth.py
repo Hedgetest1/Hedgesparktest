@@ -54,7 +54,9 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.database import DATABASE_URL  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+
+from app.core.database import DATABASE_URL, SessionLocal  # noqa: E402
 from app.core.merchant_session import (  # noqa: E402
     SESSION_COOKIE_NAME, create_session_token,
 )
@@ -167,6 +169,75 @@ def _pct(xs: list[float], p: float) -> float:
     return xs[min(int(len(xs) * p / 100), len(xs) - 1)]
 
 
+def _seed_merchant_data(shops: list[str], n_orders: int,
+                        n_events: int) -> tuple[int, int]:
+    """Give EACH rig merchant `n_orders` orders + `n_events` events with
+    recent timestamps so /dashboard/overview does its REAL cold build
+    (~18 queries) instead of the empty fast-path. Without this the rig
+    only measures the data-LIGHT path — the honest gap the founder
+    challenged. One host, €0, deterministic. unnest×generate_series so
+    every shop gets exactly the same volume."""
+    db = SessionLocal()
+    try:
+        if n_orders > 0:
+            db.execute(text("""
+                INSERT INTO shop_orders
+                    (shop_domain, shopify_order_id, total_price, currency,
+                     customer_email, created_at, ingested_at, source)
+                SELECT s, 'lr_' || s || '_' || g,
+                       (10 + (g % 191))::numeric(10,2), 'EUR',
+                       'c' || (g % 200) || '@loadrig.example',
+                       now() - (((g * 2654435761) % 60) || ' days')::interval,
+                       now(), 'loadrig'
+                FROM unnest(:shops) s, generate_series(1, :n) g
+            """), {"shops": shops, "n": n_orders})
+        if n_events > 0:
+            db.execute(text("""
+                INSERT INTO events
+                    (shop_domain, visitor_id, event_type, "timestamp",
+                     product_url)
+                SELECT s, 'v' || (g % 500),
+                       (ARRAY['product_view','dwell_time','scroll',
+                              'add_to_cart'])[1 + (g % 4)],
+                       (extract(epoch from now())*1000)::bigint
+                           - ((g::bigint * 2654435761)
+                              % (60::bigint * 86400000)),
+                       '/products/p' || (g % 50)
+                FROM unnest(:shops) s, generate_series(1, :n) g
+            """), {"shops": shops, "n": n_events})
+        db.commit()
+        return n_orders * len(shops), n_events * len(shops)
+    finally:
+        db.close()
+
+
+def _purge_loadtest_data() -> None:
+    """No orphan data (§2 r7): cleanup_merchants only removes merchant
+    rows; the seeded orders/events are keyed by shop_domain and must be
+    purged explicitly. Prefix-scoped, so it can never touch a real shop."""
+    db = SessionLocal()
+    try:
+        tbls = ("shop_orders", "events", "nudge_events",
+                "visitor_purchase_sessions")
+        for tbl in tbls:
+            db.execute(text(
+                f"DELETE FROM {tbl} WHERE shop_domain LIKE '\\_loadtest\\_%'"
+            ))
+        db.commit()
+        # n_live_tup is a planner ESTIMATE that lags DELETEs until
+        # autovacuum. A tool that deletes its rows but leaves the
+        # statistics reading the pre-purge count is itself a mini-
+        # tampone: it made audit_db_table_growth read "events 1292"
+        # when reality was 0 and blocked an honest commit. ANALYZE
+        # forces the estimate to match reality NOW, so the rig leaves
+        # the DB statistically truthful, not just row-truthful.
+        for tbl in tbls:
+            db.execute(text(f"ANALYZE {tbl}"))
+        db.commit()
+    finally:
+        db.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--merchants", type=int, default=400,
@@ -175,6 +246,11 @@ def main() -> int:
                     help="true-parallel OS worker processes")
     ap.add_argument("--duration", type=int, default=25)
     ap.add_argument("--route", default="/dashboard/overview")
+    ap.add_argument("--seed-orders", type=int, default=0,
+                    help="orders PER merchant — >0 exercises the real "
+                         "data-heavy /overview cold build, not empty path")
+    ap.add_argument("--seed-events", type=int, default=0,
+                    help="events PER merchant (data-heavy path)")
     ap.add_argument("--keep", action="store_true",
                     help="skip cleanup (debug only)")
     args = ap.parse_args()
@@ -189,10 +265,19 @@ def main() -> int:
               "ground-truth instrument is blind.", file=sys.stderr)
         return 3
 
-    print(f"setup: {args.merchants} distinct cold merchants…")
-    shops = setup_merchants(args.merchants, force=True)
     rc = 0
+    # setup + seed are INSIDE the try so a seed failure still triggers
+    # the finally purge (a prior wiring had them outside → a seed crash
+    # leaked merchant rows; §19.1 smoke caught it).
     try:
+        print(f"setup: {args.merchants} distinct cold merchants…")
+        shops = setup_merchants(args.merchants, force=True)
+        if args.seed_orders or args.seed_events:
+            o, e = _seed_merchant_data(shops, args.seed_orders,
+                                       args.seed_events)
+            print(f"seeded data-heavy: {o:,} orders + {e:,} events across "
+                  f"{len(shops)} merchants ({args.seed_orders}o/"
+                  f"{args.seed_events}e each) — /overview real cold build")
         per = max(1, len(shops) // args.procs)
         slices = [shops[i:i + per] or shops
                   for i in range(0, len(shops), per)][:args.procs]
@@ -263,8 +348,10 @@ def main() -> int:
         rc = 1 if (errs > 0 or b["cl_waiting"] > 0) else 0
     finally:
         if not args.keep:
+            _purge_loadtest_data()
             n = cleanup_merchants()
-            print(f"\ncleanup: {n} synthetic merchant rows removed")
+            print(f"\ncleanup: {n} merchant rows + seeded "
+                  f"orders/events/nudge/vps purged (prefix-scoped)")
     return rc
 
 

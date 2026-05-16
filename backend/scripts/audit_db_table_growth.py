@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -77,6 +78,17 @@ _HIGH_SPIKE_TABLES = frozenset({
     "sentry_incidents",
 })
 _HIGH_SPIKE_THRESHOLD_PCT = 500
+# Absolute-rows floor. A pure percentage threshold is a false-positive
+# factory at tiny absolute scale: on the pre-merchant DB a real dev
+# merchant generating 89 visitor_purchase_sessions rows reads as
+# "+1780% runaway" (5 → 94) and blocks honest commits, while a genuine
+# missing-retention / unbounded-write-loop ALWAYS manifests as large
+# ABSOLUTE counts (100k → millions). Gate the % check on the table
+# having actually reached a scale where runaway growth is even a
+# concern. Below this, % is meaningless noise. Born 2026-05-16f after
+# the ground-truth load-rig work surfaced the class (real data, tiny
+# base, percent-only → false block). Env-tunable for ops.
+_MIN_ABSOLUTE_ROWS = int(os.getenv("DB_GROWTH_MIN_ABS_ROWS", "50000"))
 
 
 def _query_table_sizes() -> dict[str, int]:
@@ -93,7 +105,22 @@ def _query_table_sizes() -> dict[str, int]:
             "SELECT relname, n_live_tup FROM pg_stat_user_tables "
             "WHERE schemaname='public'"
         )).fetchall()
-        return {r[0]: int(r[1] or 0) for r in rows}
+        # Normalise time-partition CHILDREN to their logical parent:
+        # `events_y2026m04` → `events`. pg_stat_user_tables lists each
+        # partition as its own relname; tracking them individually means
+        # one time-bucket filling, rotating, or being retention-dropped
+        # reads as "+2166% runaway" when it is expected partition
+        # behaviour — and bypasses the parent's _HIGH_SPIKE_TABLES intent
+        # (e.g. `events` is high-spike@500% but `events_y2026m04` got the
+        # default 200%). Runaway growth of the logical table shows on the
+        # summed parent, not a single child. Born 2026-05-16f: the
+        # ground-truth load rig's seed-then-purge tripped events_y2026m04
+        # at 200% while the logical `events` was the high-spike intent.
+        agg: dict[str, int] = {}
+        for r in rows:
+            name = re.sub(r"_(y\d{4}m\d{2}|p\d+|default)$", "", r[0])
+            agg[name] = agg.get(name, 0) + int(r[1] or 0)
+        return agg
     except Exception:
         return {}
     finally:
@@ -178,7 +205,7 @@ def main() -> int:
             else args.threshold
         )
         growth_pct = ((current - baseline) * 100) // baseline
-        if growth_pct >= threshold_pct:
+        if current >= _MIN_ABSOLUTE_ROWS and growth_pct >= threshold_pct:
             findings.append(
                 f"{name}: baseline {baseline:,} rows "
                 f"→ now {current:,} rows = +{growth_pct}% "
