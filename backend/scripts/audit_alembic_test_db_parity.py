@@ -96,7 +96,14 @@ def _db_version(url: str) -> str | None:
 def _db_schema_fingerprint(url: str) -> tuple[str, list[str]]:
     """Return (fingerprint_hash, sorted list of 'table.column:type')
     for the public schema. Excludes alembic_version itself (tracked
-    separately) and Postgres-managed catalog tables.
+    separately), Postgres-managed catalog tables, and EXTENSION-owned
+    relations (e.g. the pg_stat_statements view, created in prod by the
+    2026-05-16 truth-infra restart but absent from the test DB). Alembic
+    neither creates nor manages extension objects, so a per-environment
+    extension difference is NOT app-schema drift — counting it produced
+    a false-positive parity failure on every preflight. Excluding all
+    `pg_depend deptype='e'` relations closes the whole class (any
+    extension, not just this one), not the single symptom.
 
     Fingerprint is a SHA256 of the concatenated sorted column list —
     stable across Postgres minor versions + independent of column
@@ -113,6 +120,16 @@ def _db_schema_fingerprint(url: str) -> tuple[str, list[str]]:
                 FROM information_schema.columns
                 WHERE table_schema = 'public'
                   AND table_name NOT IN ('alembic_version')
+                  AND table_name NOT IN (
+                      SELECT c.relname
+                      FROM pg_class c
+                      JOIN pg_depend d
+                        ON d.objid = c.oid
+                       AND d.classid = 'pg_class'::regclass
+                       AND d.deptype = 'e'
+                      JOIN pg_namespace n ON n.oid = c.relnamespace
+                      WHERE n.nspname = 'public'
+                  )
                 ORDER BY table_name, column_name
             """)).fetchall()
         triples = [f"{r[0]}.{r[1]}:{r[2]}" for r in rows]

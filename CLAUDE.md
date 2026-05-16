@@ -1084,6 +1084,8 @@ refuses to start if prior `_loadtest_` shops exist unless --force).
 | `hs:bi_query:rate:{shop_md5_16}` | Pro #3 BI Query Builder — per-merchant rate limit counter (30 queries / 60s); INCR + EXPIRE pipeline atomic | 60s |
 | `hs:recurring_buyers:v1:{shop_md5_16}` | Pro #2 Recurring Buyers — cadence-analytics response cache (mask_email applied before serialize) | 30min |
 | `hs:recurring_buyers:lock:v1:{shop_md5_16}` | Pro #2 Recurring Buyers — SETNX stampede lock around the 180d aggregation | 30s |
+| `hs:customer_churn:v1:{shop_md5_16}` | `/pro/customer-churn` cache-first payload (full top-500, sliced per-`limit` on read). 284-YELLOW class remediation: `score_shop_customers` unbounded per-shop GROUP BY intermittently disk-sorts at scale (EXPLAIN-proven `scripts/explain_at_scale.py`) — caching takes it off the per-request hot path | 30min |
+| `hs:customer_churn:lock:v1:{shop_md5_16}` | `/pro/customer-churn` SETNX stampede lock — ≤1 cold-build (the disk-sort-prone query) per shop per TTL | 30s |
 | `hs:storeprofile:v1:{shop_md5_16}` | Sprint 4 #7 store-profile endpoint response cache | 60s |
 | `hs:storeprofile:lock:v1:{shop_md5_16}` | Sprint 4 #7 store-profile SETNX stampede lock | 30s |
 | `hs:survey_cfg:v1:{shop}` | Post-purchase survey config cache | 10min |
