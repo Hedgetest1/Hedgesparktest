@@ -45,13 +45,23 @@ fail() { printf "%b[auto-deploy] ✗ %s%b\n" "$RED" "$1" "$NC" >&2; }
 # a423c44 when the backend took > 2s to bind to :8000 post-reload.
 # Uvicorn's reload path varies by app size + import graph; a single
 # 2s checkpoint is too optimistic. Retries on 1s → 2s → 4s → 8s
-# delays (total budget ~15s), returns 0 on first success, 1 if the
-# whole budget is exhausted without a healthy response.
+# delays, returns 0 on first success, 1 if the whole budget is
+# exhausted without a healthy response.
+#
+# Budget 15s → 60s (2026-05-16): the 2026-05-15 Stage-4 bump to 8
+# uvicorn workers made a cold `pm2 reload` take >15s for all workers
+# to import the full app graph + bind :8000. The 15s budget produced
+# a false-FAIL on commit 62541cf ("health probe FAILED after 15s
+# budget") while the backend was in fact healthy ~seconds later
+# (ops_alerts 0/0, /system/health 200). Same born-after-incident
+# discipline as the original 2026-04-22 note: the probe must outlast
+# the worst-case cold start, not the typical one. 60s stays bounded —
+# a genuinely-dead backend still fails the deploy within a minute.
 _health_probe_with_backoff() {
     local url="$1"
     local delay=1
     local total=0
-    local budget=15
+    local budget=60
     while [ "$total" -lt "$budget" ]; do
         if curl -sf -o /dev/null --max-time 3 "$url"; then
             return 0

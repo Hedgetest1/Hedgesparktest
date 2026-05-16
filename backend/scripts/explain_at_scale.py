@@ -126,6 +126,116 @@ QUERIES: dict[str, dict] = {
         "params": lambda: {"shop": SYNTH_SHOP},
         "literal_params": {},
     },
+    # ---- TIER-B true-uncached endpoints (Agent-mapped, verbatim SQL) ----
+    # #2 causal_intervention_engine.measure_nudge_lift:84 (GET /pro/causal-lift,
+    # uncached). 30d window + nudge_events→vps→shop_orders LEFT JOIN fanout.
+    "causal_lift": {
+        "src": "causal_intervention_engine.py:84  (GET /pro/causal-lift, uncached)",
+        "sql": """
+            SELECT ne.nudge_id, ne.event_type, ne.visitor_id,
+                   COALESCE(so.total_price, 0) AS revenue
+            FROM nudge_events ne
+            LEFT JOIN visitor_purchase_sessions vps
+                ON vps.visitor_id = ne.visitor_id
+                AND vps.shop_domain = :shop
+                AND vps.confirmed_at >= (now() - interval '30 days')
+            LEFT JOIN shop_orders so
+                ON so.shopify_order_id = vps.shopify_order_id
+                AND so.shop_domain = :shop
+            WHERE ne.shop_domain = :shop
+              AND ne.created_at >= (now() - interval '30 days')
+              AND ne.event_type IN ('shown', 'holdout_assigned')
+        """,
+        "params": lambda: {"shop": SYNTH_SHOP},
+        "literal_params": {},
+        "traffic": True,
+    },
+    # #4c visitor_journeys.py:151 (GET /visitor-journeys, uncached,
+    # get_read_db). NO time window — full event history for the visitor set
+    # — the strongest churn-class analog (bounded only by the IN-list).
+    "vj_touch": {
+        "src": "visitor_journeys.py:151  (GET /visitor-journeys batch-touch, uncached, NO time window)",
+        "sql": """
+            SELECT visitor_id, source_type, utm_campaign, timestamp
+            FROM events
+            WHERE shop_domain = :shop
+              AND visitor_id = ANY(ARRAY(SELECT 'v' || g
+                                         FROM generate_series(0, 1499) g))
+              AND source_type IS NOT NULL
+            ORDER BY visitor_id, timestamp ASC
+        """,
+        "params": lambda: {"shop": SYNTH_SHOP},
+        "literal_params": {},
+        "traffic": True,
+    },
+    # #4b visitor_journeys.py:116 (GET /visitor-journeys main, uncached).
+    # 30d window on vps.confirmed_at + JOIN shop_orders.
+    "vj_main": {
+        "src": "visitor_journeys.py:116  (GET /visitor-journeys main, uncached)",
+        "sql": """
+            SELECT vps.visitor_id, vps.shopify_order_id, vps.confirmed_at,
+                   so.total_price
+            FROM visitor_purchase_sessions vps
+            JOIN shop_orders so
+              ON so.shop_domain = vps.shop_domain
+               AND so.shopify_order_id = vps.shopify_order_id
+            WHERE vps.shop_domain = :shop
+              AND vps.confirmed_at >= (now() - interval '30 days')
+            ORDER BY vps.confirmed_at DESC
+            LIMIT 150
+        """,
+        "params": lambda: {"shop": SYNTH_SHOP},
+        "literal_params": {},
+        "traffic": True,
+    },
+    # #5a audience_segments.segment_product_visitors:151 (GET
+    # /pro/segments/compare, uncached, called 2x/request). 72h window
+    # events GROUP BY visitor_id + anti-join vps.
+    "seg_compare": {
+        "src": "audience_segments.py:151  (GET /pro/segments/compare, uncached, 2x/req)",
+        "sql": """
+            WITH active_events AS (
+                SELECT
+                    visitor_id,
+                    COALESCE(AVG(CASE WHEN event_type IN ('product_view','dwell_time','scroll')
+                                 THEN max_scroll_depth END), 0) AS avg_scroll,
+                    COALESCE(AVG(CASE WHEN event_type = 'dwell_time'
+                                 THEN dwell_seconds END), 0) AS avg_dwell,
+                    COUNT(CASE WHEN event_type = 'product_view' THEN 1 END) AS visit_count
+                FROM events
+                WHERE shop_domain = :shop
+                  AND product_url  = '/products/p0'
+                  AND timestamp    >= (extract(epoch from now() - interval '72 hours')*1000)::bigint
+                GROUP BY visitor_id
+                HAVING COUNT(CASE WHEN event_type = 'product_view' THEN 1 END) > 0
+            )
+            SELECT ae.visitor_id, ae.avg_scroll, ae.avg_dwell, ae.visit_count
+            FROM active_events ae
+            LEFT JOIN visitor_purchase_sessions vps
+                ON vps.visitor_id  = ae.visitor_id
+               AND vps.shop_domain = :shop
+            WHERE vps.visitor_id IS NULL
+            ORDER BY ae.avg_scroll DESC, ae.avg_dwell DESC
+            LIMIT 500
+        """,
+        "params": lambda: {"shop": SYNTH_SHOP},
+        "literal_params": {},
+        "traffic": True,
+    },
+    # #6a daily_narrative.py:70 (GET /daily-narrative, uncached,
+    # get_read_db). Today-only window — representative of the 5 tiny
+    # per-day COUNT/SUM queries the endpoint fans out.
+    "daily_visitors": {
+        "src": "daily_narrative.py:70  (GET /daily-narrative, uncached — 1 of 5 today-window queries)",
+        "sql": """
+            SELECT COUNT(DISTINCT visitor_id) FROM events
+            WHERE shop_domain = :shop
+              AND timestamp >= (extract(epoch from date_trunc('day', now()))*1000)::bigint
+        """,
+        "params": lambda: {"shop": SYNTH_SHOP},
+        "literal_params": {},
+        "traffic": True,
+    },
 }
 
 
@@ -201,6 +311,68 @@ def _seed(session, orders: int, customers: int, history_days: int,
     )
 
 
+def _seed_traffic(session, events: int, visitors: int, hist_days: int,
+                  bg_events: int, bg_shops: int) -> None:
+    """Seed events + visitor_purchase_sessions + nudge_events for the
+    synthetic shop + a multi-tenant background (so the shop is a
+    selective slice — same anti-artifact discipline as _seed).
+    Deterministic; timestamps land in the recent window so the
+    30d/72h/today predicates + events partition-pruning behave like
+    prod. visitor_id / shopify_order_id link consistently across
+    tables so JOIN fanout is realistic, not degenerate."""
+    hist_ms = hist_days * 86_400_000
+    common = {"shop": SYNTH_SHOP, "visitors": max(1, visitors),
+              "hist_days": hist_days, "hist_ms": hist_ms,
+              "bg_shops": max(1, bg_shops)}
+    # events (the 100M-row hot table). 4 event_types cycled; ~1/3 carry a
+    # source_type (the vj_touch / daily filters); product_url across 50 SKUs.
+    for who, n, shop_expr in (
+        ("bg", bg_events, "'_explain_bg_' || (g % :bg_shops) || '.myshopify.com'"),
+        ("tg", events, ":shop"),
+    ):
+        if n <= 0:
+            continue
+        session.execute(text(f"""
+            INSERT INTO events
+                (shop_domain, visitor_id, event_type, "timestamp",
+                 product_url, source_type, max_scroll_depth, dwell_seconds)
+            SELECT
+                {shop_expr},
+                'v' || (g % :visitors),
+                (ARRAY['product_view','dwell_time','scroll','add_to_cart'])[1 + (g % 4)],
+                (extract(epoch from now())*1000)::bigint
+                    - ((g * 2654435761) % :hist_ms),
+                '/products/p' || (g % 50),
+                CASE WHEN g % 3 = 0 THEN
+                    (ARRAY['google','meta','email','direct'])[1 + (g % 4)]
+                END,
+                (g % 101),
+                (g % 120)
+            FROM generate_series(1, :n) g
+        """), {**common, "n": n})
+    # vps — one per converting visitor; links to seeded shop_orders ids.
+    session.execute(text("""
+        INSERT INTO visitor_purchase_sessions
+            (shop_domain, visitor_id, shopify_order_id, confirmed_at,
+             ingested_at)
+        SELECT :shop, 'v' || (g % :visitors), 'synth_' || g,
+               now() - (((g * 2654435761) % :hist_days) || ' days')::interval,
+               now()
+        FROM generate_series(1, :vps) g
+    """), {**common, "vps": max(1, events // 10)})
+    # nudge_events — event_type incl. the causal_lift filter values.
+    session.execute(text("""
+        INSERT INTO nudge_events
+            (shop_domain, nudge_id, visitor_id, product_url, event_type,
+             created_at)
+        SELECT :shop, (g % 20), 'v' || (g % :visitors),
+               '/products/p' || (g % 50),
+               (ARRAY['shown','holdout_assigned','clicked','dismissed'])[1 + (g % 4)],
+               now() - (((g * 2654435761) % :hist_days) || ' days')::interval
+        FROM generate_series(1, :ne) g
+    """), {**common, "ne": max(1, events // 4)})
+
+
 def _explain(session, name: str, spec: dict) -> dict:
     sql = spec["sql"].strip()
     # Inline literal time params (real code binds datetimes; literal interval
@@ -254,6 +426,10 @@ def main() -> int:
                          "SELECTIVE (defeats the single-shop seq-scan artifact)")
     ap.add_argument("--bg-shops", type=int, default=400,
                     help="number of background shops to spread bg-orders over")
+    ap.add_argument("--events", type=int, default=200_000,
+                    help="synthetic events for the target shop (TIER-B queries)")
+    ap.add_argument("--bg-events", type=int, default=1_000_000,
+                    help="background events so the target shop is selective")
     ap.add_argument("--query", default="", help="run only this registry key")
     ap.add_argument("--prove-churn-fix", action="store_true",
                     help="EXPLAIN churn2, then CREATE the candidate covering "
@@ -303,6 +479,28 @@ def main() -> int:
             print(f"ABORT: only {seen} rows visible — seed/txn broken",
                   file=sys.stderr)
             return 3
+
+        if any(QUERIES[k].get("traffic") for k in keys):
+            tt0 = time.perf_counter()
+            visitors = max(1, args.events // 20)  # ~20 events/visitor
+            _seed_traffic(session, args.events, visitors, 60,
+                          args.bg_events, args.bg_shops)
+            session.execute(text("ANALYZE events"))
+            session.execute(text("ANALYZE visitor_purchase_sessions"))
+            session.execute(text("ANALYZE nudge_events"))
+            ev = session.execute(
+                text("SELECT count(*) FROM events WHERE shop_domain = :s"),
+                {"s": SYNTH_SHOP}).scalar()
+            ev_tot = session.execute(text("SELECT count(*) FROM events")).scalar()
+            if not args.json:
+                print(f"seeded traffic: target_events={ev:,} + bg="
+                      f"{ev_tot - ev:,} (sel={100.0*ev/max(1,ev_tot):.2f}%), "
+                      f"{visitors:,} visitors, in "
+                      f"{(time.perf_counter()-tt0)*1000:.0f}ms — ANALYZE done\n")
+            if ev < args.events:
+                print(f"ABORT: only {ev} events visible — traffic seed broken",
+                      file=sys.stderr)
+                return 3
 
         for k in keys:
             results.append(_explain(session, k, QUERIES[k]))
