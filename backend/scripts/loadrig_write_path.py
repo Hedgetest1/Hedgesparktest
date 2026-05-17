@@ -228,6 +228,34 @@ def main() -> int:
         print(f"buffer depth: {depth0} → {depth1} (post +8s drain)  "
               f"events persisted (wlrig%): {persisted}")
 
+        # ── INSTRUMENT-SOUNDNESS GUARD (2026-05-17, the 2026-05-16d
+        # "a verdict is only as sound as the instrument" law,
+        # mechanised) ─────────────────────────────────────────────────
+        # main.py:338 caps POST /track at 600 req / 60s PER CLIENT IP.
+        # rate_limit.py keys the bucket `{extract_client_ip}|POST|/track`.
+        # This rig runs every proc from ONE host ⟹ ONE shared IP bucket
+        # (XFF is NOT trusted without the CF gate, by security design),
+        # so the per-IP rate limit SHEDS before `ingest_admit` is ever
+        # reached: `ok` plateaus at ≈600 regardless of
+        # INGEST_ADMIT_BUDGET. PRODUCTION has millions of DISTINCT
+        # browser IPs (each visitor far under 600/60s) so the per-IP RL
+        # does NOT shadow there — but this single-IP rig structurally
+        # CANNOT exercise / right-size the ingest budget. Emitting a
+        # budget verdict from a shadowed run would be exactly the
+        # instrument-unsound false-claim this guard exists to refuse.
+        _PER_IP_TRACK_CAP = 600  # main.py:338 (POST /track, 60s window)
+        rl_shadowed = (ok <= _PER_IP_TRACK_CAP * 1.6) and (shed > ok) \
+            and (err == 0)
+        if rl_shadowed:
+            print(
+                f"\n🔴 INSTRUMENT SHADOWED — single-IP per-IP rate "
+                f"limit ({_PER_IP_TRACK_CAP}/60s, main.py:338) capped "
+                f"ok≈{ok} BEFORE ingest_admit. This rig CANNOT measure "
+                f"/ right-size INGEST_ADMIT_BUDGET (prod has distinct "
+                f"IPs ⟹ no shadow there; needs a MULTI-IP / distributed "
+                f"rig). Any budget conclusion from THIS run is UNSOUND "
+                f"— do not draw one.")
+
         # VERDICT — the CASCADE is precisely: the shared pool queued
         # (broker cl_waiting>0 / maxwait) OR 5xx/timeout. That is the
         # catastrophic multi-tenant mode J3 exists to kill. X-Query-
@@ -252,12 +280,16 @@ def main() -> int:
                      f"{persisted} persisted. " if drain_broken else ""))
             rc = 1
         else:
-            print(f"\nVERDICT: ✅ J3 PROVEN cascade-immune at "
+            _budget_clause = (
+                "BUDGET UNMEASURED (per-IP RL shadowed — see above; "
+                "needs a multi-IP rig)" if rl_shadowed else
+                f"ingest budget exercised, {shed} shed-429 = graceful "
+                f"admission (offered>capacity)")
+            print(f"\nVERDICT: ✅ J3 cascade-immune at "
                   f"{tot/wall:.0f} req/s offered — ZERO 5xx, broker "
                   f"NEVER queued (cl_waiting=0, maxwait=0): the "
                   f"catastrophic multi-tenant pool-cascade is "
-                  f"structurally absent. {shed} shed-429 = graceful "
-                  f"admission (offered>capacity), the system working. "
+                  f"structurally absent. {_budget_clause}. "
                   f"Drain end-to-end OK: {persisted} events persisted, "
                   f"buffer residual {depth1}.")
             if avgqc > 0.05:
