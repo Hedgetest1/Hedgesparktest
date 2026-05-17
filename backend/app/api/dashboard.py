@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -1003,24 +1004,63 @@ _DASHBOARD_CB_KEY = "hs:dash:cb"
 # (purged each admit) rather than permanently consuming the budget.
 _DASHBOARD_CB_STALE_SEC = 35
 
+# honest-residual #2 structural close. The ZSET cap above is Redis-only:
+# Redis down → it admitted ALL (old "degraded" return), AND the
+# shed-to-sticky fallback ALSO fails (sticky IS Redis), so the caller
+# fell through to an unbounded ~18-query build → a digest-herd reopened
+# the MEASURED 41% pool-timeout cliff. The fix is defence-in-depth, not
+# a band-aid: a per-WORKER BoundedSemaphore floor so concurrent cold
+# builds stay bounded EVEN with Redis down. PM2 forks 8 uvicorn workers
+# (CLAUDE.md §6); module state is per-worker, so 8 × this ≈ the global
+# budget, all ≪ PgBouncer pool 80, enforced WITHOUT shared state.
+# Redis UP → ZSET is the precise global cap (this sem is NOT consulted —
+# a per-worker cap would wrongly reject a busy worker the global ZSET
+# still has room for). Redis DOWN/flaky → this sem is the only bound,
+# and it is BOUNDED, never the old unbounded-open.
+# accept-degrade: one BoundedSemaphore per forked worker is exactly
+# the intended per-process bound; global ≈ workers × local by
+# construction (NOT a cross-process lock — it never blocks/serialises
+# requests: acquire is always blocking=False).
+_DASHBOARD_CB_LOCAL_BUDGET = int(os.getenv(
+    "DASHBOARD_COLD_BUILD_LOCAL_BUDGET",
+    str(max(2, _DASHBOARD_COLD_BUILD_BUDGET // 8))))
+# multi-worker: accept-degrade — per-worker by design (8 × this ≈ the
+# Redis global budget; the Redis-DOWN structural floor, see above).
+_dashboard_cb_local_sem = threading.BoundedSemaphore(_DASHBOARD_CB_LOCAL_BUDGET)
+
 
 def _cold_build_admit() -> str | None:
-    """Return a release token if a global cold-build slot was taken,
-    None if the budget is full (caller must shed, not build). Crash-
-    safe: ZSET of {token: start_epoch}; stale entries (dead builders)
-    purged every call. Degrade-open: Redis down → admit ('degraded'),
-    same contract as _acquire_dashboard_lock. The zcard→zadd window can
-    let a few extra through under burst — tolerated: budget 40 ≪ pool
-    80, a small overshoot never exhausts the pool (the structural
-    property is the cap, not exactness; a Lua CAS would be over-eng)."""
+    """Return a release token if a cold-build slot was taken, None if
+    the budget is full (caller must shed — NOT unbounded-build).
+
+    Redis UP → the ZSET is the PRECISE global cap (crash-safe: {token:
+    start_epoch}; stale dead-builder entries purged every call; the
+    zcard→zadd window can let a few extra through under burst —
+    tolerated: budget 40 ≪ pool 80, a small overshoot never exhausts
+    the pool). The per-worker semaphore is deliberately NOT consulted
+    here — a per-worker cap would wrongly reject a busy worker the
+    global ZSET still has room for.
+
+    Redis DOWN/flaky → the global cap is unenforceable, but the storm
+    must STILL be bounded (honest-residual #2: the old 'degraded'
+    return admitted ALL, and sticky is ALSO Redis so the caller fell
+    through to an unbounded build → the 41% cliff returned). Acquire
+    the per-WORKER BoundedSemaphore non-blocking: got it → 'local'
+    token (bounded build); full → None (shed, exactly as Redis-full).
+    Never the old unbounded-open."""
     try:
         import uuid
         from app.core.redis_client import _client
         from app.core.silent_fallback import record_silent_return
         rc = _client()
         if rc is None:
-            record_silent_return("dashboard.cold_build_admit_redis_down")
-            return "degraded"
+            if _dashboard_cb_local_sem.acquire(blocking=False):
+                record_silent_return(
+                    "dashboard.cold_build_admit_redis_down_local_bounded")
+                return "local"
+            record_silent_return(
+                "dashboard.cold_build_admit_redis_down_local_full")
+            return None
         now = time.time()
         rc.zremrangebyscore(_DASHBOARD_CB_KEY, 0,
                             now - _DASHBOARD_CB_STALE_SEC)
@@ -1032,11 +1072,29 @@ def _cold_build_admit() -> str | None:
         return token
     except Exception as exc:
         log.warning("dashboard: cold-build admit failed: %s", exc)
-        return "degraded"  # degrade-open: better to build than to wedge
+        # Redis flaky mid-op — same structural floor: bounded-local,
+        # never unbounded-open.
+        try:
+            if _dashboard_cb_local_sem.acquire(blocking=False):
+                return "local"
+        except Exception as exc2:
+            log.warning(
+                "dashboard: cold-build local-sem acquire failed: %s", exc2)
+        return None  # shed (caller serves sticky or warming-503)
 
 
 def _cold_build_release(token: str | None) -> None:
-    if not token or token == "degraded":
+    if not token or token == "degraded":  # "degraded" = legacy no-op
+        return
+    if token == "local":
+        try:
+            _dashboard_cb_local_sem.release()
+        except ValueError:
+            # BoundedSemaphore over-release (double-release guard) —
+            # benign; the slot was already returned.
+            pass
+        except Exception as exc:
+            log.warning("dashboard: cold-build local release failed: %s", exc)
         return
     try:
         from app.core.redis_client import _client
@@ -1045,6 +1103,39 @@ def _cold_build_release(token: str | None) -> None:
             rc.zrem(_DASHBOARD_CB_KEY, token)
     except Exception as exc:
         log.warning("dashboard: cold-build release failed: %s", exc)
+
+
+def _release_dashboard_lock(lock_key: str) -> None:
+    """Best-effort release of the SETNX stampede lock. Called on the
+    warming-shed path so a shop that hit the budget ceiling is NOT
+    wedged for the full _DASHBOARD_LOCK_TTL_SEC (the next request can
+    retry as soon as the budget frees). Redis down → the lock was
+    degrade-open (no real key); delete is a harmless no-op."""
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            rc.delete(lock_key)
+    except Exception as exc:
+        log.warning("dashboard: lock release failed (%s): %s", lock_key, exc)
+
+
+def _dashboard_warming() -> Any:
+    """Shed a cold-miss that cannot be served from cache/sticky and
+    cannot safely build (budget exhausted — Redis-down storm or
+    sustained overload). A fast retryable 503 is the §0 'never
+    problematic for the merchant' choice: the alternative is an
+    unbounded ~18-query build that re-creates the measured 41%
+    pool-timeout cliff (a 30s hang → 500 for EVERY endpoint). The
+    frontend loadOverview() treats non-2xx as a graceful error
+    (preserves last data, no white-screen — verified) and the
+    Retry-After invites a near-term retry that will hit the warmed
+    cache."""
+    raise HTTPException(
+        status_code=503,
+        detail="dashboard warming — retry shortly",
+        headers={"Retry-After": "5"},
+    )
 
 
 def _serve_dashboard_with_stampede_guard(
@@ -1058,15 +1149,17 @@ def _serve_dashboard_with_stampede_guard(
       2. Lost the race  → serve real sticky (≤24h stale) immediately
          (steady-state once prewarm has run at least once — ZERO wait,
          ZERO DB); else poll the primary briefly.
-      3. Brand-new shop → no sticky, holder still building: one bounded
-         build (stampede-collapsed to exactly this one for the shop).
+      3. Budget exhausted + no sticky → shed to a fast warming-503, NOT
+         an unbounded ~18-query build (the measured 41% pool-timeout
+         cliff; honest-residual #2: under Redis-down sticky is ALSO
+         unavailable, so the only safe shed is the 503).
     """
     from app.core.redis_client import cache_get
     if _acquire_dashboard_lock(lock_key):
         token = _cold_build_admit()
         if token is None:
-            # 4th tier: global cold-build budget full. Do NOT add a
-            # ~2s pooled-conn build to an already-saturated pool (the
+            # 4th tier: cold-build budget full. Do NOT add a ~2s
+            # pooled-conn build to an already-saturated pool (the
             # measured 2026-05-16f digest-herd cliff). Shed to last-
             # known-good — the realistic herd is prewarmed merchants
             # → sticky hit, 0 error, ≤24h-stale (the §0 "never
@@ -1077,12 +1170,20 @@ def _serve_dashboard_with_stampede_guard(
             waited = _wait_for_dashboard_cache(cache_key)
             if waited is not None:
                 return waited
-            # Brand-new shop, no sticky, budget full (rare — onboarded
-            # merchants are prewarmed): retry admission once after the
-            # bounded wait (slots drain fast). budget ≪ pool, so an
-            # admitted build's conn acquisition is INSTANT — bounded-
-            # slow, never the 30s pool_timeout cliff.
+            # No sticky, budget full. Retry admission ONCE — slots drain
+            # in ~2s and the wait above already burned the budget, so a
+            # transient Redis-up ceiling (rare brand-new shop) clears
+            # here → bounded build.
             token = _cold_build_admit()
+            if token is None:
+                # Still no slot AND no sticky. This is the
+                # honest-residual #2 state: Redis-down storm (sticky IS
+                # Redis) OR sustained overload. An unbounded build here
+                # is the cliff. Release the lock so the shop is not
+                # wedged for the 30s lock TTL (next request retries the
+                # moment the budget frees), then shed a fast 503.
+                _release_dashboard_lock(lock_key)
+                return _dashboard_warming()
         try:
             return builder()
         except Exception as exc:
@@ -1099,7 +1200,12 @@ def _serve_dashboard_with_stampede_guard(
     waited = _wait_for_dashboard_cache(cache_key)
     if waited is not None:
         return waited
-    return builder()
+    # Lost the race, no sticky, the holder's bounded build window
+    # expired. Piling our own build here is the stampede the guard
+    # exists to prevent (and under a storm = the cliff). Shed a fast
+    # 503 — the holder is still building; the retry hits the warm
+    # cache. We do NOT hold the lock, so nothing to release.
+    return _dashboard_warming()
 
 
 def prewarm_lite_dashboard(db: Session, shop: str) -> bool:
