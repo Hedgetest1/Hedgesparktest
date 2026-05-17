@@ -142,7 +142,7 @@ def drain_events(max_total: int | None = None) -> int:
                     "first_seen, last_seen) VALUES %s "
                     "ON CONFLICT (visitor_id, shop_domain) DO UPDATE "
                     "SET last_seen = EXCLUDED.last_seen"
-                ), [(v, s, "now()", "now()") for (v, s) in vpairs],
+                ), [(v, s) for (v, s) in vpairs],
                     template="(%s,%s,now(),now())")
             execute_values(cur, (
                 f"INSERT INTO events ({','.join(_EVENT_FIELDS)}) VALUES %s"

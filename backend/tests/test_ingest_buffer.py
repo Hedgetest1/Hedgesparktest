@@ -115,30 +115,77 @@ def test_take_batch_is_atomic_lpop_count(monkeypatch):
 
 # ── drain bulk-INSERT shape (hermetic — mocked DB, no SAVEPOINT bypass) ──
 
-def test_drain_bulk_inserts_events_and_upserts_visitors(monkeypatch):
+def test_drain_REALLY_persists_events_and_visitors():
+    """REAL round-trip (NOT a mock): enqueue → drain_events → assert
+    rows actually land in `events` + `visitors`. Born 2026-05-17 after
+    the prior MOCKED version gave a FALSE GREEN — it recorded the SQL
+    string but never executed it, so it missed a runtime
+    execute_values template/value-arity mismatch in the visitor upsert
+    that made EVERY production drain batch fail (buffer drained, 0
+    persisted; caught only by the write-rig smoke). The instrument
+    must exercise the real failure mode (the 2026-05-16d lesson).
+    Uses a unique prefix + explicit cleanup (drain_events runs its own
+    SessionLocal — the accepted pattern for SessionLocal-path code,
+    same as the load rigs)."""
+    import uuid
+    from app.core.database import SessionLocal
+    from sqlalchemy import text
+    shop = f"wlrig_buftest_{uuid.uuid4().hex[:8]}.myshopify.com"
+    db0 = SessionLocal()
+    try:
+        for vid, et in (("vt1", "product_view"), ("vt2", "scroll"),
+                        ("vt1", "add_to_cart")):  # vt1 twice → upsert
+            assert ib.enqueue_event({
+                "shop_domain": shop, "visitor_id": vid,
+                "event_type": et, "timestamp": 1747000000000}) is True
+        n = ib.drain_events(max_total=100)
+        assert n == 3, f"drain wrote {n}, expected 3"
+        ev = db0.execute(text(
+            "SELECT count(*) FROM events WHERE shop_domain=:s"),
+            {"s": shop}).scalar()
+        vi = db0.execute(text(
+            "SELECT count(*) FROM visitors WHERE shop_domain=:s"),
+            {"s": shop}).scalar()
+        assert ev == 3, f"events persisted={ev}, expected 3 (drain SQL broke)"
+        assert vi == 2, f"visitors upserted={vi}, expected 2 distinct"
+        assert ib.buffer_depth() == 0, "buffer must be fully drained"
+    finally:
+        db0.execute(text("DELETE FROM events WHERE shop_domain=:s"),
+                    {"s": shop})
+        db0.execute(text("DELETE FROM visitors WHERE shop_domain=:s"),
+                    {"s": shop})
+        db0.commit()
+        db0.close()
+
+
+def test_drain_bulk_insert_sql_shape(monkeypatch):
+    """Cheap shape guard (complements the real round-trip above):
+    drain issues an events bulk INSERT + a visitor upsert ON CONFLICT,
+    and — the regression that shipped — every value row's arity MUST
+    match the execute_values template's %s count."""
     fr = _FakeRedis()
     monkeypatch.setattr("app.core.redis_client._client", lambda: fr)
     ib.enqueue_event({"shop_domain": "s.myshopify.com",
                       "visitor_id": "v1", "event_type": "product_view"})
-    ib.enqueue_event({"shop_domain": "s.myshopify.com",
-                      "visitor_id": "v2", "event_type": "scroll"})
-
-    fake_cur = MagicMock()
     fake_raw = MagicMock()
-    fake_raw.cursor.return_value = fake_cur
+    fake_raw.cursor.return_value = MagicMock()
     fake_sess = MagicMock()
     fake_sess.connection.return_value.connection = fake_raw
-    calls: list[str] = []
     monkeypatch.setattr("app.core.database.SessionLocal",
                         lambda: fake_sess)
-    monkeypatch.setattr(
-        "psycopg2.extras.execute_values",
-        lambda cur, sql, rows, template=None: calls.append(sql))
+    seen: list[str] = []
 
-    n = ib.drain_events(max_total=100)
-    assert n == 2
-    assert any("INSERT INTO events" in c for c in calls)
-    assert any("INSERT INTO visitors" in c and "ON CONFLICT" in c
-               for c in calls)
+    def _ev(cur, sql, rows, template=None):
+        seen.append(sql)
+        if template is not None and rows:
+            assert len(rows[0]) == template.count("%s"), (
+                f"value arity {len(rows[0])} != template %s count "
+                f"{template.count('%s')} — the exact bug that made "
+                f"every drain batch fail")
+
+    monkeypatch.setattr("psycopg2.extras.execute_values", _ev)
+    ib.drain_events(max_total=100)
+    assert any("INSERT INTO events" in s for s in seen)
+    assert any("INSERT INTO visitors" in s and "ON CONFLICT" in s
+               for s in seen)
     fake_raw.commit.assert_called()
-    assert ib._take_batch(fr, 10) == []                  # buffer drained
