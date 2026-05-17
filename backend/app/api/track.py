@@ -791,13 +791,36 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
             detail="Too many events for this shop.",
         )
 
-    _upsert_visitor(db, payload.visitor_id, payload.shop_domain)
+    # ── J3-part-1: aggregate ingest admission (jewel-structure
+    # 2026-05-17) ──────────────────────────────────────────────────
+    # The per-(IP,shop) limit above does NOT bound AGGREGATE write QPS
+    # (millions of distinct browser IPs at 10k merchants). Without a
+    # global cap an ingest storm saturates the 80-conn PgBouncer pool
+    # (shared with dashboard reads + 8 workers) and CASCADES into every
+    # endpoint. Cap concurrent EXPENSIVE ingests ≪ pool (mirror of the
+    # proven dashboard 4th-tier admission). Over-cap → fast 429: the
+    # tracker is fire-and-forget (best-effort analytics), so a bounded
+    # fast shed under an extreme storm is graceful degradation, NOT
+    # data loss — the alternative is the pool-cascade 500ing the
+    # merchant's whole dashboard. Gate is placed AFTER the cheap
+    # no-DB validations and BEFORE the expensive visitor-upsert +
+    # event INSERT + commit so a shed costs ~1ms, not a full ingest.
+    from app.core.ingest_admission import ingest_admit, ingest_release
+    _ingest_tok = ingest_admit()
+    if _ingest_tok is None:
+        raise HTTPException(
+            status_code=429,
+            detail="Ingest temporarily saturated — retry shortly.",
+            headers={"Retry-After": "1"},
+        )
+    try:
+        _upsert_visitor(db, payload.visitor_id, payload.shop_domain)
 
-    # Normalize defensively — handles old tracker versions, third-party senders,
-    # and any full URL that slipped through. Returns None for non-product input.
-    canonical_product_url = normalize_product_url(payload.product_url)
+        # Normalize defensively — handles old tracker versions, third-party senders,
+        # and any full URL that slipped through. Returns None for non-product input.
+        canonical_product_url = normalize_product_url(payload.product_url)
 
-    event = Event(
+        event = Event(
         shop_domain=payload.shop_domain,
         visitor_id=payload.visitor_id,
         event_type=payload.event_type,
@@ -825,50 +848,61 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
         device_type=payload.device_type if payload.device_type in ("mobile", "desktop") else None,
     )
 
-    db.add(event)
+        db.add(event)
 
-    # Spatial heatmap bucket increment (Lite spatial heatmap — Lucky
-    # Orange Build $39 parity). Click + mousemove events with x_pct/
-    # y_pct hit a 10×10 Redis grid; rendered by HeatmapCard click +
-    # move tabs. Stored ONLY in Redis to avoid schema migration.
-    _bump_heatmap_bucket(
-        shop_domain=payload.shop_domain,
-        url=canonical_product_url or payload.page_url or "",
-        event_type=payload.event_type,
-        x_pct=payload.x_pct,
-        y_pct=payload.y_pct,
-    )
-
-    # Store shopify_y → visitor_id mapping for pixel identity bridging.
-    # When the Custom Pixel fires checkout_completed, it sends event.clientId
-    # (derived from _shopify_y) but can't read our localStorage. This mapping
-    # lets the backend resolve our visitor_id from the pixel's identity.
-    _store_shopify_y_mapping(payload)
-
-    # Purchase events also persist to shop_orders for revenue analytics
-    _persist_purchase(db, payload)
-
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        return JSONResponse(
-            content={"status": "ok", "event_id": None},
-            headers=_CORS_HEADERS,
+        # Spatial heatmap bucket increment (Lite spatial heatmap — Lucky
+        # Orange Build $39 parity). Click + mousemove events with x_pct/
+        # y_pct hit a 10×10 Redis grid; rendered by HeatmapCard click +
+        # move tabs. Stored ONLY in Redis to avoid schema migration.
+        _bump_heatmap_bucket(
+            shop_domain=payload.shop_domain,
+            url=canonical_product_url or payload.page_url or "",
+            event_type=payload.event_type,
+            x_pct=payload.x_pct,
+            y_pct=payload.y_pct,
         )
 
-    # Best-effort geo capture for live visitor map (non-blocking)
-    try:
-        from app.core.geo import capture_visitor_geo_sync
-        capture_visitor_geo_sync(request, payload.shop_domain, payload.visitor_id)
-    except Exception as exc:
-        log.warning("track: track_event failed: %s", exc)
-        pass  # geo is never critical
+        # Store shopify_y → visitor_id mapping for pixel identity bridging.
+        # When the Custom Pixel fires checkout_completed, it sends event.clientId
+        # (derived from _shopify_y) but can't read our localStorage. This mapping
+        # lets the backend resolve our visitor_id from the pixel's identity.
+        _store_shopify_y_mapping(payload)
 
-    return JSONResponse(
-        content={"status": "ok", "event_id": event.id},
-        headers=_CORS_HEADERS,
-    )
+        # Purchase events also persist to shop_orders for revenue analytics
+        _persist_purchase(db, payload)
+
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return JSONResponse(
+                content={"status": "ok", "event_id": None},
+                headers=_CORS_HEADERS,
+            )
+
+        # Best-effort geo capture for live visitor map (non-blocking)
+        try:
+            from app.core.geo import capture_visitor_geo_sync
+            capture_visitor_geo_sync(request, payload.shop_domain, payload.visitor_id)
+        except Exception as exc:
+            log.warning("track: track_event failed: %s", exc)
+            pass  # geo is never critical
+
+        return JSONResponse(
+            content={"status": "ok", "event_id": event.id},
+            headers=_CORS_HEADERS,
+        )
+    except Exception:
+        # The outer admission-guard try wraps db.add + db.commit. Any
+        # failure in the body (visitor upsert, persist_purchase, a
+        # non-IntegrityError commit error) MUST roll the session back
+        # before it propagates / before get_db teardown — never return
+        # a half-written txn to the shared PgBouncer pool
+        # (write_no_rollback). Defense-in-depth: explicit, early, here.
+        db.rollback()
+        raise
+    finally:
+        ingest_release(_ingest_tok)
 
 
 # ---------------------------------------------------------------------------
@@ -895,62 +929,84 @@ def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_db))
     Accepts up to 50 events.  Invalid events are skipped, not rejected.
     Returns count of accepted vs rejected events.
     """
-    MAX_BATCH = 50
-    events_list = payload.events[:MAX_BATCH]
-    accepted = 0
-    rejected = 0
+    # J3-part-1 aggregate ingest admission — sibling of the single
+    # /track gate (§11: a known sibling left ungated is the failure
+    # mode). Same shared primitive; batch is lower pool-pressure
+    # (1 commit/≤50 events) but a batch storm still saturates the
+    # shared pool, so the same cap + fast-429 shed applies.
+    from app.core.ingest_admission import ingest_admit, ingest_release
+    _ingest_tok = ingest_admit()
+    if _ingest_tok is None:
+        raise HTTPException(
+            status_code=429,
+            detail="Ingest temporarily saturated — retry shortly.",
+            headers={"Retry-After": "1"},
+        )
+    try:
+        MAX_BATCH = 50
+        events_list = payload.events[:MAX_BATCH]
+        accepted = 0
+        rejected = 0
 
-    # Deduplicate visitor upserts within the batch
-    seen_visitors: set[tuple[str, str]] = set()
+        # Deduplicate visitor upserts within the batch
+        seen_visitors: set[tuple[str, str]] = set()
 
-    for item in events_list:
-        if not is_valid_shop_domain(item.shop_domain):
-            rejected += 1
-            continue
-        if item.event_type not in _ALLOWED_EVENT_TYPES:
-            rejected += 1
-            continue
+        for item in events_list:
+            if not is_valid_shop_domain(item.shop_domain):
+                rejected += 1
+                continue
+            if item.event_type not in _ALLOWED_EVENT_TYPES:
+                rejected += 1
+                continue
 
-        vkey = (item.visitor_id, item.shop_domain)
-        if vkey not in seen_visitors:
-            _upsert_visitor(db, item.visitor_id, item.shop_domain)
-            seen_visitors.add(vkey)
+            vkey = (item.visitor_id, item.shop_domain)
+            if vkey not in seen_visitors:
+                _upsert_visitor(db, item.visitor_id, item.shop_domain)
+                seen_visitors.add(vkey)
 
-        canonical_product_url = normalize_product_url(item.product_url)
-        db.add(Event(
-            shop_domain=item.shop_domain,
-            visitor_id=item.visitor_id,
-            event_type=item.event_type,
-            url=item.page_url,
-            product_url=canonical_product_url,
-            timestamp=item.timestamp,
-            dwell_seconds=item.dwell_seconds,
-            max_scroll_depth=item.scroll_depth,
-            source_type=item.source_type or None,
-            referrer=item.referrer or None,
-            product_id=item.product_id or None,
-            device_type=item.device_type if item.device_type in ("mobile", "desktop") else None,
-        ))
+            canonical_product_url = normalize_product_url(item.product_url)
+            db.add(Event(
+                shop_domain=item.shop_domain,
+                visitor_id=item.visitor_id,
+                event_type=item.event_type,
+                url=item.page_url,
+                product_url=canonical_product_url,
+                timestamp=item.timestamp,
+                dwell_seconds=item.dwell_seconds,
+                max_scroll_depth=item.scroll_depth,
+                source_type=item.source_type or None,
+                referrer=item.referrer or None,
+                product_id=item.product_id or None,
+                device_type=item.device_type if item.device_type in ("mobile", "desktop") else None,
+            ))
 
-        # Store shopify_y mapping for identity bridging
-        _store_shopify_y_mapping(item)
+            # Store shopify_y mapping for identity bridging
+            _store_shopify_y_mapping(item)
 
-        # Purchase events also persist to shop_orders
-        _persist_purchase(db, item)
+            # Purchase events also persist to shop_orders
+            _persist_purchase(db, item)
 
-        accepted += 1
+            accepted += 1
 
-    if accepted > 0:
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            accepted = 0
+        if accepted > 0:
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                accepted = 0
 
-    return JSONResponse(
-        content={"status": "ok", "accepted": accepted, "rejected": rejected},
-        headers=_CORS_HEADERS,
-    )
+        return JSONResponse(
+            content={"status": "ok", "accepted": accepted, "rejected": rejected},
+            headers=_CORS_HEADERS,
+        )
+    except Exception:
+        # Same write_no_rollback defense as single /track: roll back a
+        # partially-written batch before it propagates / pool-returns.
+        db.rollback()
+        raise
+    finally:
+        ingest_release(_ingest_tok)
+
 
 from fastapi import Response
 
