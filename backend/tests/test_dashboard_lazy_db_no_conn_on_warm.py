@@ -109,3 +109,41 @@ def test_cold_cache_opens_exactly_one_db_session_and_closes_it(client, _merchant
         rs.assert_called_once()                       # lazy session opened
         build.assert_called_once_with(fake_db, _SHOP)  # builder got it
         fake_db.close.assert_called_once()            # and it was closed
+
+
+def test_build_releases_conn_before_the_non_sql_cache_set_tail():
+    """honest-residual #7 contract (MEASURED 2026-05-17: ~87% of the
+    cold-build conn-held window is the non-SQL Python + Redis cache_set
+    tail). The build MUST close the pooled DB session the moment the
+    last query is done, BEFORE the cache_set tail — same shape as the
+    already-correct get_dashboard_intelligence. A regression that moves
+    cache_set before db.close (or drops db.close) fails here."""
+    from unittest.mock import MagicMock, patch
+    import app.api.dashboard as d
+
+    order: list[str] = []
+    db = MagicMock(name="ReadSession()")
+    db.close.side_effect = lambda: order.append("db.close")
+
+    def _cs(*a, **k):
+        order.append("cache_set")
+
+    with patch("app.services.revenue_metrics.get_shop_currency",
+               return_value="EUR"), \
+         patch("app.services.revenue_metrics.get_shop_aov",
+               return_value=42.0), \
+         patch.object(d, "_build_summary", return_value={}), \
+         patch.object(d, "_build_top_products", return_value=[]), \
+         patch.object(d, "_build_revenue_window_tease", return_value=None), \
+         patch.object(d, "_get_calibration_summary", return_value={}), \
+         patch("app.core.redis_client.cache_get", return_value=None), \
+         patch("app.core.redis_client.cache_set", _cs), \
+         patch("app.services.store_insight_engine.generate_store_brief",
+               return_value=None):
+        d.build_lite_dashboard_overview(db, "x.myshopify.com")
+
+    assert "db.close" in order, "build must release the pooled conn"
+    assert order.index("db.close") < order.index("cache_set"), (
+        f"#7 violated: conn held across the non-SQL cache_set tail "
+        f"(order={order}) — the all-cold-storm pool-pressure regression"
+    )

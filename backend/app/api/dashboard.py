@@ -930,6 +930,19 @@ def build_lite_dashboard_overview(db: Session, shop: str) -> dict[str, Any]:
         "calibration":          _get_calibration_summary(db, shop),
         "intelligence":         store_brief,
     }
+    # honest-residual #7 (MEASURED 2026-05-17): of this cold build's
+    # pooled-conn-held window only ~13% is SQL — ~87% is the Python
+    # assembly + the two Redis cache_set below, all WHILE pinning a
+    # PgBouncer server conn. Under the all-cold 400-parallel storm that
+    # 7× over-hold is the residual pool pressure (measured cl_waiting=
+    # 225). Release the conn HERE, the moment the last query is done,
+    # BEFORE the non-SQL tail — same shape as get_dashboard_intelligence
+    # (the already-correct in-repo reference). result is plain JSON data
+    # (cache_set proves it — no lazy ORM needs the session). Caller's
+    # finally close is idempotent; worker prewarm path single-use. NOT
+    # a band-aid (no budget/pool tuning) — hold the scarce resource only
+    # while it is actually used.
+    db.close()
     cache_set(cache_key, result, TTL_DASHBOARD)
     # Last-known-good sticky mirror (24h). The cold-miss stampede
     # fallback serves this REAL (≤24h stale) payload — identical schema,
@@ -1340,6 +1353,11 @@ def build_pro_dashboard_overview(db: Session, shop: str) -> dict[str, Any]:
         "aov_is_real":        aov_is_real,
         "calibration":        _get_calibration_summary(db, shop),
     }
+    # honest-residual #7 (MEASURED): release the pooled conn the moment
+    # the last query is done, BEFORE the non-SQL cache_set tail (~87%
+    # of the conn-held window is non-SQL). Sibling of the Lite build
+    # fix — same shape as the already-correct get_dashboard_intelligence.
+    db.close()
     cache_set(cache_key, result, TTL_DASHBOARD)
     cache_set(
         KEY_DASHBOARD_STICKY.format(shop=shop) + ":pro",

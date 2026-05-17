@@ -257,6 +257,30 @@ def _purge_loadtest_data() -> None:
         db.commit()
     finally:
         db.close()
+    # The rig's dashboard cache/sticky Redis keys are NOT in the DB —
+    # leaving them orphans the next run's measurement: a subsequent
+    # NO-prewarm run would read the PRIOR run's warm sticky (24h TTL)
+    # and report a FALSE all-cold "0 err / 0 query" (the exact
+    # instrument-confound this rig exists to prevent — same class as
+    # the n_live_tup/ANALYZE footgun above; §2 r7 no orphan state).
+    # Prefix-scoped to the rig's own _loadtest_ shops → can never
+    # touch a real merchant's cache.
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is not None:
+            n = 0
+            for k in rc.scan_iter("hs:dash:*loadtest*", count=1000):
+                rc.delete(k)
+                n += 1
+            if n:
+                print(f"purged {n} orphan hs:dash:*loadtest* Redis "
+                      f"keys (cache+sticky+lock — measurement stays "
+                      f"cold-truthful for the next run)")
+    except Exception as exc:
+        print(f"WARNING: rig Redis purge failed ({exc}) — next "
+              f"NO-prewarm run may read stale sticky; verify manually",
+              file=sys.stderr)
 
 
 def main() -> int:
