@@ -137,11 +137,17 @@ def get_public_status():
     }
     try:
         with engine.connect() as conn:
+            # last_at carries the SAME 30d FILTER as n30 — an unfiltered
+            # MAX(created_at) reports a >30d-old all-time fix as
+            # "last_fix_at" while the counts are 0, which the public
+            # status page renders as recent self-healing that never
+            # happened (§0 no-false-claims). Invariant: 30d count 0 ⟺
+            # last_fix_at NULL.
             row = conn.execute(text("""
                 SELECT
                     COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS n7,
                     COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS n30,
-                    MAX(created_at) AS last_at
+                    MAX(created_at) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS last_at
                 FROM audit_log
                 WHERE action_type IN (
                     'bugfix_applied',

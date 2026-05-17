@@ -58,7 +58,7 @@ def _self_healing_section() -> dict:
                 SELECT
                     COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS n7,
                     COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS n30,
-                    MAX(created_at) AS last_at
+                    MAX(created_at) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS last_at
                 FROM audit_log
                 WHERE action_type IN (
                     'bugfix_applied',
