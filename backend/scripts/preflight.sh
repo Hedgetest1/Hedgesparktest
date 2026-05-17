@@ -957,6 +957,21 @@ else
     tail -10 /tmp/preflight_wnrd.log
 fi
 
+# A time-budget worker `break` loop with NO cross-cycle cursor re-grinds
+# the same head every cycle → at 10k the iteration-order tail is
+# systematically never reached (store_metrics/SIP/prewarm never run for
+# it → no sticky for the 4th-tier cold-build admission to shed to). This
+# made "the worker prewarms every active merchant every cycle" false at
+# 10k. CLAUDE.md §12 mandated the cursor in prose; this makes it
+# mechanical. Born 2026-05-17. KEEP STRICT.
+step "Worker-loop cursor audit (audit_worker_loop_cursor.py)"
+if "$PY" scripts/audit_worker_loop_cursor.py > /tmp/preflight_wlc.log 2>&1; then
+    ok "every time-budget worker loop has a cross-cycle resume cursor"
+else
+    bad "a time-budget worker loop lost its resume cursor (10k tail starvation) — see /tmp/preflight_wlc.log"
+    tail -12 /tmp/preflight_wlc.log
+fi
+
 # Every session-yielding FastAPI dep must be in conftest's
 # dependency_overrides or tests escape the hermetic SAVEPOINT against
 # the live test DB (the get_lazy_read_db 18-test break, ledger #15).

@@ -44,6 +44,63 @@ def log(msg):
 
 
 # ---------------------------------------------------------------------------
+# Round-robin keyset cursor over (shop_domain, product_url)
+# ---------------------------------------------------------------------------
+# Born 2026-05-17 (sibling of the aggregation_worker fix). The pairs query
+# was `.distinct().limit(5000)` with NO ORDER BY (a nondeterministic
+# 5000-row sample) and the loop had a 480s budget `break` with NO cursor
+# — at 10k the same head re-ground every cycle, so the (shop,product) tail
+# never got `update_product_opportunity` ⟹ stale intent/RARS for exactly
+# the tail. Fix = the proven in-repo keyset pattern
+# (find_active_products_batch): ORDER BY (shop,product) +
+# WHERE (shop,product) > (:cs,:cp), advance to the LAST ACTUALLY-PROCESSED
+# pair (budget-break-safe), wrap on a short final page. 24h TTL;
+# redis-down → degrade-open (no cursor = process from head).
+
+_INTEL_CURSOR_KEY = "hs:intel:cursor"
+
+
+def _load_intel_cursor() -> tuple[str, str] | None:
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("intelligence_worker.load_cursor.redis_down")
+            return None
+        import json as _json
+        v = rc.get(_INTEL_CURSOR_KEY)
+        if not v:
+            return None
+        d = _json.loads(v)
+        return (d["shop"], d["product"])
+    except Exception as exc:
+        _log.warning("intelligence_worker: _load_intel_cursor failed: %s", exc)
+        return None
+
+
+def _save_intel_cursor(pair: tuple[str, str] | None) -> None:
+    try:
+        from app.core.redis_client import _client
+        rc = _client()
+        if rc is None:
+            from app.core.silent_fallback import record_silent_return
+            record_silent_return("intelligence_worker.save_cursor.redis_down")
+            return
+        if pair is None:
+            rc.delete(_INTEL_CURSOR_KEY)  # keyset exhausted → wrap to head
+            return
+        import json as _json
+        rc.set(
+            _INTEL_CURSOR_KEY,
+            _json.dumps({"shop": pair[0], "product": pair[1]}),
+            ex=86400,
+        )
+    except Exception as exc:
+        _log.warning("intelligence_worker: _save_intel_cursor failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
 # WorkerState helpers
 # ---------------------------------------------------------------------------
 
@@ -128,29 +185,59 @@ def run_cycle():
         # two shops had products at the same URL path.
         _PAIR_LIMIT = 5000  # 10k-merchant safe: cap per-cycle to prevent unbounded loops
         _TIME_BUDGET_SECONDS = 480  # 8 min budget inside a 10 min cycle
+        # Keyset round-robin: deterministic ORDER BY (the old query had
+        # none → a nondeterministic 5000-row sample) + resume past the
+        # last processed pair so the 10k tail is reached over bounded
+        # cycles instead of never (the 480s `break` below otherwise
+        # re-grinds the same head forever). Mirrors
+        # find_active_products_batch.
+        from sqlalchemy import tuple_ as _tuple
+        _intel_cursor = _load_intel_cursor()
+        _pairs_q = db.query(
+            VisitorProductState.shop_domain,
+            VisitorProductState.product_url,
+        ).filter(
+            VisitorProductState.shop_domain.isnot(None),
+            VisitorProductState.product_url.isnot(None),
+        )
+        if _intel_cursor is not None:
+            _pairs_q = _pairs_q.filter(
+                _tuple(
+                    VisitorProductState.shop_domain,
+                    VisitorProductState.product_url,
+                ) > _tuple(_intel_cursor[0], _intel_cursor[1])
+            )
         pairs = (
-            db.query(
+            _pairs_q
+            .distinct()
+            .order_by(
                 VisitorProductState.shop_domain,
                 VisitorProductState.product_url,
             )
-            .filter(
-                VisitorProductState.shop_domain.isnot(None),
-                VisitorProductState.product_url.isnot(None),
-            )
-            .distinct()
             .limit(_PAIR_LIMIT)
             .all()
         )
 
-        log(f"found {len(pairs)} (shop_domain, product_url) pairs (limit {_PAIR_LIMIT})")
+        log(
+            f"found {len(pairs)} (shop_domain, product_url) pairs "
+            f"(limit {_PAIR_LIMIT}, "
+            f"cursor={'∅' if _intel_cursor is None else _intel_cursor})"
+        )
 
         import time as _time
         from app.core.query_count_monitor import worker_scope as _worker_scope
         _cycle_start = _time.monotonic()
+        _broke = False
+        _last_pair: tuple[str, str] | None = None
         for shop_domain, product_url in pairs:
             if _time.monotonic() - _cycle_start > _TIME_BUDGET_SECONDS:
-                log(f"time budget exhausted ({_TIME_BUDGET_SECONDS}s) after {rows_written} rows — yielding")
+                log(f"time budget exhausted ({_TIME_BUDGET_SECONDS}s) after {rows_written} rows — yielding (cursor resumes past last pair)")
+                _broke = True
                 break
+            # Consumed for THIS cycle before the work (success OR
+            # caught-error) — an erroring pair must not block the cursor
+            # forever; the cursor advances past it next cycle.
+            _last_pair = (shop_domain, product_url)
             try:
                 with _worker_scope("intelligence_worker.update_opportunity", shop_domain):
                     update_product_opportunity(db, product_url, shop_domain)
@@ -161,6 +248,18 @@ def run_cycle():
                 errors += 1
                 last_error = f"{shop_domain} | {product_url} | {e}"
                 log(f"error on {shop_domain} | {product_url}: {e}")
+
+        # Advance the keyset cursor. Budget-broke OR a full page
+        # (len == _PAIR_LIMIT) ⟹ more pairs may remain → resume past the
+        # last processed pair. A short final page we fully consumed ⟹ the
+        # keyset is exhausted → wrap to the head next cycle (None).
+        # Nothing processed ⟹ leave the cursor untouched (don't lose
+        # ground). update_product_opportunity is an idempotent upsert, so
+        # a bounded wrap re-process is harmless.
+        if not _broke and len(pairs) < _PAIR_LIMIT:
+            _save_intel_cursor(None)
+        elif _last_pair is not None:
+            _save_intel_cursor(_last_pair)
 
         # ---------------------------------------------------------------
         # Klaviyo intent events — push fresh signals to connected merchants

@@ -73,6 +73,7 @@ alternative of losing a cycle's work silently.
 import json as _json
 import logging
 log = logging.getLogger("aggregation_worker")
+import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -768,11 +769,39 @@ def _run_cycle_inner() -> None:
                 exec_count = 0
                 _agg_budget_seconds = 240  # 4 min budget inside a 5 min cycle
                 _agg_start = time.monotonic()
+                # Round-robin cursor (mirrors segment_monitor_worker /
+                # agent_worker). Without it the 240s budget `break` below
+                # re-grinds the SAME iteration-order head every cycle, so
+                # the tail is systematically never reached at 10k:
+                # store_metrics/SIP/execution never refresh for it AND
+                # prewarm_lite_dashboard never runs for it, so it has no
+                # sticky last-known-good for the 4th-tier cold-build
+                # admission to shed to (the load-bearing premise under the
+                # 2026-05-16f 41%-cliff fix). Sorted list = stable cursor;
+                # advance-by-actual-processed = no shop skipped even when
+                # the budget breaks mid-batch. <= _AGG_MAX_PER_CYCLE shops
+                # ⟹ whole list every cycle (zero behaviour change below
+                # scale — we have 4 merchants today).
+                from app.workers._rr_cursor import (
+                    load_cursor as _rr_load,
+                    save_cursor as _rr_save,
+                    rr_slice as _rr_slice,
+                    next_cursor as _rr_next,
+                )
+                _AGG_CURSOR_KEY = "hs:aggregation:cursor"
+                _AGG_MAX_PER_CYCLE = int(
+                    os.getenv("AGG_MAX_SHOPS_PER_CYCLE", "2000"))
+                _all_shops_sorted = sorted(all_shops)
+                _agg_cursor = _rr_load(_AGG_CURSOR_KEY)
+                _cycle_shops = _rr_slice(
+                    _all_shops_sorted, _agg_cursor, _AGG_MAX_PER_CYCLE)
+                _processed_this_cycle = 0
                 from app.core.query_count_monitor import worker_scope as _worker_scope
-                for shop in all_shops:
+                for shop in _cycle_shops:
                     if time.monotonic() - _agg_start > _agg_budget_seconds:
-                        log(f"store_metrics: time budget exhausted ({_agg_budget_seconds}s) after {store_count} shops — yielding")
+                        log(f"store_metrics: time budget exhausted ({_agg_budget_seconds}s) after {store_count} shops — yielding (cursor +{_processed_this_cycle}/{len(_all_shops_sorted)})")
                         break
+                    _processed_this_cycle += 1
                     # Per-shop iteration runs ~10 sub-ops (store_metrics,
                     # process_execution_opportunities, _update_tracking_outcomes,
                     # detect_holdout_leakage, compute_post_execution_deltas,
@@ -889,6 +918,17 @@ def _run_cycle_inner() -> None:
                             conn.rollback()
                             log(f"store_metrics error for {shop} (non-fatal): {exc}")
 
+                # Advance the round-robin cursor by the number of shops
+                # actually processed this cycle (success OR caught-error —
+                # an erroring shop must not block the cursor forever).
+                # processed==0 → no advance (don't skip ground). Survives
+                # the budget `break` above: next cycle resumes at exactly
+                # the un-processed shop, so the 10k tail is reached over
+                # bounded cycles instead of never.
+                if _all_shops_sorted:
+                    _rr_save(_AGG_CURSOR_KEY, _rr_next(
+                        _agg_cursor, _processed_this_cycle,
+                        len(_all_shops_sorted)))
                 if store_count > 0:
                     log(f"store_metrics: updated {store_count} shop(s), {exec_count} opportunities")
             except Exception as exc:
