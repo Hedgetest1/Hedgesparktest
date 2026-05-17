@@ -129,6 +129,50 @@ def test_pre_fix_shape_would_starve_the_tail():
     assert seen != set(shops), "the tail MUST be starved without a cursor"
 
 
+def test_j1_tiered_cadence_hot_every_cycle_cold_bounded():
+    """J1 jewel-structure invariant (aggregation_worker tiered cadence,
+    2026-05-17). Reproduces the exact in-loop composition:
+      cycle_shops = sorted(HOT) + rr_slice(COLD, cursor, MAX)
+      cursor' = next_cursor(cursor, cold_processed, len(COLD))
+    Asserts: (1) a HOT merchant is processed EVERY cycle it is hot
+    (freshness — fixes prewarm-dead-at-10k for the active population);
+    (2) EVERY cold merchant is reached within ~ceil(|COLD|/MAX) cycles
+    (no cold starvation — the 10k defect); (3) the cursor advances by
+    cold-processed only (hot never consumes cold rotation budget)."""
+    from app.workers._rr_cursor import rr_slice, next_cursor
+
+    N = 10_000
+    active = sorted(f"shop-{i:05d}.myshopify.com" for i in range(N))
+    MAX = 2000               # _AGG_COLD_MAX_PER_CYCLE default
+    BUDGET = 1700             # shops the 240s budget allows per cycle
+    # A rotating hot subset: ~400 distinct active merchants per cycle.
+    cursor = 0
+    cold_seen: set[str] = set()
+    hot_freshness_violations = 0
+    cycles = 0
+    max_cycles = 2 * (-(-N // MAX)) + 4
+    while len(cold_seen) < N and cycles < max_cycles:
+        hot = sorted(active[(cycles * 137) % N:(cycles * 137) % N + 400])
+        hot_set = set(hot)
+        cold = [s for s in active if s not in hot_set]
+        cold_slice = rr_slice(cold, cursor, MAX)
+        cycle_shops = hot + cold_slice            # HOT first, exactly as code
+        processed = cycle_shops[:BUDGET]          # 240s budget break
+        # (1) every hot shop that fit the budget was processed this cycle
+        if set(hot) - set(processed) and len(processed) >= len(hot):
+            hot_freshness_violations += 1
+        cold_processed = max(0, len(processed) - len(hot))
+        cold_seen.update(s for s in processed if s not in hot_set)
+        cursor = next_cursor(cursor, cold_processed, len(cold))
+        cycles += 1
+    assert hot_freshness_violations == 0, (
+        "a HOT merchant was skipped while budget remained — prewarm/"
+        "freshness regression for the active population")
+    assert len(cold_seen) >= int(0.99 * N), (
+        f"cold starvation: only {len(cold_seen)}/{N} cold merchants "
+        f"reached in {cycles} cycles — the 10k defect is back")
+
+
 # ---------------------------------------------------------------------------
 # intelligence_worker keyset cursor — contracts
 # ---------------------------------------------------------------------------

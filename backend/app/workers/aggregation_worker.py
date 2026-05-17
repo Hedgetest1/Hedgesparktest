@@ -741,23 +741,6 @@ def _run_cycle_inner() -> None:
             # Non-fatal: errors don't block the cycle.
             # ---------------------------------------------------------------
             try:
-                # Process all shops that had activity this cycle, plus any
-                # shop with existing product_metrics (ensures store_metrics
-                # stays fresh even during quiet periods).
-                all_shops = shops_processed_set.copy()
-                if not all_shops:
-                    # No active products this cycle — still refresh existing shops
-                    try:
-                        # Operator/dev tenant exclusion (founder direttiva 2026-05-06).
-                        from app.core.operator_blocklist import operator_dev_shops as _op_shops
-                        shop_rows = conn.execute(
-                            text("SELECT shop_domain FROM merchants WHERE install_status = 'active' AND NOT (shop_domain = ANY(:operator_shops))"),
-                            {"operator_shops": list(_op_shops())},
-                        ).fetchall()
-                        all_shops = {r[0] for r in shop_rows}
-                    except Exception as exc:
-                        log.warning("aggregation_worker: _run_cycle_inner failed: %s", exc)
-
                 from app.services.execution_engine import (
                     process_execution_opportunities,
                     _update_tracking_outcomes,
@@ -769,37 +752,67 @@ def _run_cycle_inner() -> None:
                 exec_count = 0
                 _agg_budget_seconds = 240  # 4 min budget inside a 5 min cycle
                 _agg_start = time.monotonic()
-                # Round-robin cursor (mirrors segment_monitor_worker /
-                # agent_worker). Without it the 240s budget `break` below
-                # re-grinds the SAME iteration-order head every cycle, so
-                # the tail is systematically never reached at 10k:
-                # store_metrics/SIP/execution never refresh for it AND
-                # prewarm_lite_dashboard never runs for it, so it has no
-                # sticky last-known-good for the 4th-tier cold-build
-                # admission to shed to (the load-bearing premise under the
-                # 2026-05-16f 41%-cliff fix). Sorted list = stable cursor;
-                # advance-by-actual-processed = no shop skipped even when
-                # the budget breaks mid-batch. <= _AGG_MAX_PER_CYCLE shops
-                # ⟹ whole list every cycle (zero behaviour change below
-                # scale — we have 4 merchants today).
+                # ── J1 tiered cadence (jewel-structure 2026-05-17) ──────────
+                # The 2026-05-17 cursor made the iterated set FAIR but the
+                # set was `shops_processed_set` (shops with events THIS
+                # cycle). At 10k that set is ~always non-empty, so the old
+                # `if not all_shops` full-active-merchant fallback NEVER
+                # fired → quiet ("COLD") active merchants got store_metrics/
+                # SIP/prewarm refreshed NEVER (the prewarm-dead-at-10k that
+                # falsified the "realistic prewarmed 10/10" claim).
+                #
+                # Jewel: two tiers off the ALREADY-computed hot signal
+                # (zero new cost, no new write-path load):
+                #   HOT  = shops_processed_set (new events this cycle) →
+                #          processed EVERY cycle (data is changing AND the
+                #          dashboard cache TTL 360s > the 5-min cycle, so a
+                #          hot merchant stays warm — this is what fixes the
+                #          prewarm-vs-TTL mismatch for the population that
+                #          matters; a separate prewarm pass would be
+                #          over-eng since the tiering keeps hot warm by
+                #          construction).
+                #   COLD = active merchants NOT hot → `_rr_cursor`
+                #          round-robin slice (bounded staleness; their data
+                #          is quiet so it is tolerable + sticky/admission
+                #          covers the rare dashboard load).
+                # Below _AGG_COLD_MAX_PER_CYCLE cold shops ⟹ whole cold
+                # list every cycle ⟹ identical to a small deployment (no
+                # 1k-merchant refactor). Cursor advances over COLD only
+                # (HOT is re-attempted every cycle by design).
                 from app.workers._rr_cursor import (
                     load_cursor as _rr_load,
                     save_cursor as _rr_save,
                     rr_slice as _rr_slice,
                     next_cursor as _rr_next,
                 )
+                from app.core.operator_blocklist import operator_dev_shops as _op_shops
                 _AGG_CURSOR_KEY = "hs:aggregation:cursor"
-                _AGG_MAX_PER_CYCLE = int(
+                _AGG_COLD_MAX_PER_CYCLE = int(
                     os.getenv("AGG_MAX_SHOPS_PER_CYCLE", "2000"))
-                _all_shops_sorted = sorted(all_shops)
+                _hot_sorted = sorted(shops_processed_set)
+                _hot_set = set(_hot_sorted)
+                _cold_sorted: list[str] = []
+                try:
+                    _active_rows = conn.execute(
+                        text("SELECT shop_domain FROM merchants WHERE install_status = 'active' AND NOT (shop_domain = ANY(:operator_shops))"),
+                        {"operator_shops": list(_op_shops())},
+                    ).fetchall()
+                    _cold_sorted = sorted(
+                        r[0] for r in _active_rows if r[0] not in _hot_set
+                    )
+                except Exception as exc:
+                    log.warning("aggregation_worker: cold-tier scan failed (non-fatal): %s", exc)
                 _agg_cursor = _rr_load(_AGG_CURSOR_KEY)
-                _cycle_shops = _rr_slice(
-                    _all_shops_sorted, _agg_cursor, _AGG_MAX_PER_CYCLE)
+                _cold_slice = _rr_slice(
+                    _cold_sorted, _agg_cursor, _AGG_COLD_MAX_PER_CYCLE)
+                # HOT first (freshness-critical), then the COLD rotation.
+                _cycle_shops = _hot_sorted + _cold_slice
+                _n_hot = len(_hot_sorted)
                 _processed_this_cycle = 0
                 from app.core.query_count_monitor import worker_scope as _worker_scope
                 for shop in _cycle_shops:
                     if time.monotonic() - _agg_start > _agg_budget_seconds:
-                        log(f"store_metrics: time budget exhausted ({_agg_budget_seconds}s) after {store_count} shops — yielding (cursor +{_processed_this_cycle}/{len(_all_shops_sorted)})")
+                        log(f"store_metrics: time budget exhausted ({_agg_budget_seconds}s) after {store_count} shops — yielding (hot={_n_hot} cold_slice={len(_cold_slice)} processed={_processed_this_cycle})")
                         break
                     _processed_this_cycle += 1
                     # Per-shop iteration runs ~10 sub-ops (store_metrics,
@@ -918,17 +931,20 @@ def _run_cycle_inner() -> None:
                             conn.rollback()
                             log(f"store_metrics error for {shop} (non-fatal): {exc}")
 
-                # Advance the round-robin cursor by the number of shops
-                # actually processed this cycle (success OR caught-error —
-                # an erroring shop must not block the cursor forever).
-                # processed==0 → no advance (don't skip ground). Survives
-                # the budget `break` above: next cycle resumes at exactly
-                # the un-processed shop, so the 10k tail is reached over
-                # bounded cycles instead of never.
-                if _all_shops_sorted:
+                # Advance the cursor over the COLD tier ONLY by the number
+                # of COLD shops actually reached this cycle. HOT is always
+                # the first _n_hot of _cycle_shops and is re-attempted
+                # every cycle (never cursor-tracked — it must stay fresh);
+                # so cold_processed = processed − hot processed. A budget
+                # break inside HOT ⟹ cold_processed=0 ⟹ no advance (next
+                # cycle re-does HOT then retries COLD from the same spot —
+                # the honest ceiling: if HOT alone exceeds 240s that is a
+                # real signal, not masked). Erroring shop still counts as
+                # reached (must not block the cursor forever).
+                if _cold_sorted:
+                    _cold_processed = max(0, _processed_this_cycle - _n_hot)
                     _rr_save(_AGG_CURSOR_KEY, _rr_next(
-                        _agg_cursor, _processed_this_cycle,
-                        len(_all_shops_sorted)))
+                        _agg_cursor, _cold_processed, len(_cold_sorted)))
                 if store_count > 0:
                     log(f"store_metrics: updated {store_count} shop(s), {exec_count} opportunities")
             except Exception as exc:
