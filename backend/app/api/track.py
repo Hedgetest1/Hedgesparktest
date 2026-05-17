@@ -814,39 +814,68 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
             headers={"Retry-After": "1"},
         )
     try:
-        _upsert_visitor(db, payload.visitor_id, payload.shop_domain)
-
-        # Normalize defensively — handles old tracker versions, third-party senders,
-        # and any full URL that slipped through. Returns None for non-product input.
+        # Normalize defensively — handles old tracker versions, third-party
+        # senders, and any full URL that slipped through. None for
+        # non-product input. Pure (no DB), needed by both branches.
         canonical_product_url = normalize_product_url(payload.product_url)
 
-        event = Event(
-        shop_domain=payload.shop_domain,
-        visitor_id=payload.visitor_id,
-        event_type=payload.event_type,
-        url=payload.page_url,                    # raw page URL, always stored as-is
-        product_url=canonical_product_url,       # None for non-product pages
-        timestamp=payload.timestamp,
-        dwell_seconds=payload.dwell_seconds,
-        max_scroll_depth=payload.scroll_depth,
-        # Store None rather than empty string for clean NULL checks in queries.
-        source_type=payload.source_type or None,
-        referrer=payload.referrer or None,
-        utm_medium=payload.utm_medium or None,
-        # Full UTM parameters — None when not provided by tracker.
-        utm_source=payload.utm_source[:128] if payload.utm_source else None,
-        utm_campaign=payload.utm_campaign[:256] if payload.utm_campaign else None,
-        utm_content=payload.utm_content[:256] if payload.utm_content else None,
-        utm_term=payload.utm_term[:256] if payload.utm_term else None,
-        # Click ID — ad platform identifier (gclid:xxx, fbclid:yyy)
-        click_id=payload.click_id[:256] if payload.click_id else None,
-        # Landing page — first page URL of the visit
-        landing_page=payload.landing_page[:512] if payload.landing_page else None,
-        # product_id: None on non-product pages; Shopify integer ID (as string) on product pages.
-        product_id=payload.product_id or None,
-        # device_type: "mobile" or "desktop", nullable for older events
-        device_type=payload.device_type if payload.device_type in ("mobile", "desktop") else None,
-    )
+        # Single source of the Event field values — used as Event(**_fields)
+        # for the synchronous purchase path AND enqueue(_fields) for the
+        # async analytics path (one place ⟹ a column drift is one edit;
+        # the keys MUST match ingest_buffer._EVENT_FIELDS).
+        _fields = {
+            "shop_domain":    payload.shop_domain,
+            "visitor_id":     payload.visitor_id,
+            "event_type":     payload.event_type,
+            "url":            payload.page_url,
+            "product_url":    canonical_product_url,
+            "timestamp":      payload.timestamp,
+            "dwell_seconds":  payload.dwell_seconds,
+            "max_scroll_depth": payload.scroll_depth,
+            "source_type":    payload.source_type or None,
+            "referrer":       payload.referrer or None,
+            "utm_medium":     payload.utm_medium or None,
+            "utm_source":     payload.utm_source[:128] if payload.utm_source else None,
+            "utm_campaign":   payload.utm_campaign[:256] if payload.utm_campaign else None,
+            "utm_content":    payload.utm_content[:256] if payload.utm_content else None,
+            "utm_term":       payload.utm_term[:256] if payload.utm_term else None,
+            "click_id":       payload.click_id[:256] if payload.click_id else None,
+            "landing_page":   payload.landing_page[:512] if payload.landing_page else None,
+            "product_id":     payload.product_id or None,
+            "device_type":    payload.device_type if payload.device_type in ("mobile", "desktop") else None,
+        }
+
+        # ── J3-part-2: high-volume NON-purchase analytics → async
+        # buffer (ZERO request DB conn; a singleton drain thread
+        # bulk-INSERTs). This is the dominant write volume; moving it
+        # off the request pool is what makes the 10k pool-cascade
+        # STRUCTURALLY impossible (J3-part-1 only bounded it). Purchase
+        # events are revenue/attribution-critical + low-volume → they
+        # KEEP the full synchronous path below (§0: must never be at
+        # buffer-loss risk). Heatmap + shopify_y are Redis-only (no DB)
+        # so they stay inline for both. event_id is unused by any
+        # client (grep-verified) so a None id on the async path breaks
+        # no contract.
+        if payload.event_type != "purchase":
+            from app.services.ingest_buffer import enqueue_event
+            enqueue_event(_fields)
+            _bump_heatmap_bucket(
+                shop_domain=payload.shop_domain,
+                url=canonical_product_url or payload.page_url or "",
+                event_type=payload.event_type,
+                x_pct=payload.x_pct,
+                y_pct=payload.y_pct,
+            )
+            _store_shopify_y_mapping(payload)
+            return JSONResponse(
+                content={"status": "ok", "event_id": None},
+                headers=_CORS_HEADERS,
+            )
+
+        # ── purchase events: full synchronous path (revenue/order
+        # attribution — never buffered, never at loss risk) ──
+        _upsert_visitor(db, payload.visitor_id, payload.shop_domain)
+        event = Event(**_fields)
 
         db.add(event)
 

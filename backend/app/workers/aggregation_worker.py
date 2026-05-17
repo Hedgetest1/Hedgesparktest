@@ -1050,8 +1050,42 @@ def _run_cycle_inner() -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _ingest_drain_loop() -> None:
+    """J3-part-2 drain runner. Hosted as a daemon thread in the
+    aggregation_worker SINGLETON process (PM2 instances:1 + worker_lock)
+    — exactly ONE drainer cluster-wide, no new PM2 process (no
+    ecosystem.config.js/TIER_2, no founder RAM-spend), no coordination.
+    The 5-min worker cycle is far too slow for a 10k ingest buffer
+    (it would overflow-trim ~93% of analytics between cycles); a tight
+    thread keeps drain latency at seconds + the buffer bounded.
+    `drain_events` uses its OWN SessionLocal (worker-style, NOT a
+    request dep) and atomic LPOP-count, so this is pool- and
+    concurrency-safe. Never dies: every exception is caught + retried."""
+    import time as _t
+    from app.services.ingest_buffer import drain_events, buffer_depth
+    _IDLE = int(os.getenv("INGEST_DRAIN_IDLE_SLEEP_S", "5"))
+    log("ingest-drain thread started")
+    while True:
+        try:
+            n = drain_events()
+            if n > 0:
+                log(f"ingest-drain: wrote {n} buffered events "
+                    f"(depth now {buffer_depth()})")
+            # Backlog → loop immediately to catch up; idle → short
+            # sleep (analytics freshness SLA is seconds, not minutes).
+            _t.sleep(0.5 if n >= 20_000 else _IDLE)
+        except Exception as exc:
+            log(f"ingest-drain loop error (non-fatal, retrying): {exc}")
+            _t.sleep(_IDLE)
+
+
 def main() -> None:
     log("worker started")
+
+    import threading as _threading
+    _threading.Thread(
+        target=_ingest_drain_loop, name="ingest-drain", daemon=True
+    ).start()
 
     while True:
         from app.core.distributed_lock import worker_lock, extend_lock
