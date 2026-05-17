@@ -951,6 +951,18 @@ def _run_cycle_inner() -> None:
         except Exception as exc:
             log(f"rollout_promotion_task error (non-fatal): {exc}")
 
+        # events partition roll-forward — defuses the dated cliff
+        # (partitions stopped at events_y2026m06; from 2026-07-01 all
+        # rows would fall into the unbounded events_default). Idempotent
+        # daily ensure of current + next 3 months.
+        try:
+            from app.workers.tasks import partition_maintenance_task
+            if partition_maintenance_task.is_due():
+                n = partition_maintenance_task.run()
+                log(f"partition_maintenance: ensured {n} events partition slot(s)")
+        except Exception as exc:
+            log(f"partition_maintenance_task error (non-fatal): {exc}")
+
         # Commerce Intelligence Graph — cross-store aggregation (daily)
         global _last_cig_run
         try:

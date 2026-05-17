@@ -1309,12 +1309,28 @@ def tick_all_active_merchants(db: Session, max_shops: int = 100) -> dict:
     if not is_brain_enabled():
         return {"skipped": "brain_disabled", "ticks": 0}
 
+    # Round-robin cursor — SIBLING of the 2026-05-17 aggregation_worker
+    # /intelligence_worker fix (the §11 sweep missed this site). The old
+    # `.limit(max_shops)` with NO order_by returned the SAME arbitrary
+    # ~max_shops merchants every cycle: at 10k that is 1% coverage, 99%
+    # of merchants NEVER ticked (Brain Vero — a headline differentiator
+    # — silently dark for the tail). Sorted list + shared rr_slice +
+    # advance-by-actual-processed = every merchant reached over a
+    # bounded number of cycles. <= max_shops active ⟹ whole list every
+    # cycle (zero behaviour change below scale; identical at 1k).
     from app.models.merchant import Merchant
-    shops = [
-        m.shop_domain for m in db.query(Merchant).filter(
+    from app.workers._rr_cursor import (
+        load_cursor as _rr_load, save_cursor as _rr_save,
+        rr_slice as _rr_slice, next_cursor as _rr_next,
+    )
+    _BRAIN_CURSOR_KEY = "hs:brain:cursor"
+    _all_active = sorted(
+        r[0] for r in db.query(Merchant.shop_domain).filter(
             Merchant.install_status == "active",
-        ).limit(max_shops).all()
-    ]
+        ).all()
+    )
+    _bc = _rr_load(_BRAIN_CURSOR_KEY)
+    shops = _rr_slice(_all_active, _bc, max_shops)
 
     # ── Sprint A P1: batched churn report (ONCE per cycle) ─────────────
     churn_levels: dict[str, str] = {}
@@ -1341,6 +1357,11 @@ def tick_all_active_merchants(db: Session, max_shops: int = 100) -> dict:
         except Exception as exc:
             log.warning("brain.tick failed for %s: %s", shop, exc)
             db.rollback()
+    # Advance by actually-attempted count (a per-shop failure must not
+    # block the cursor forever — it advances past it next cycle).
+    if _all_active:
+        _rr_save(_BRAIN_CURSOR_KEY,
+                 _rr_next(_bc, len(shops), len(_all_active)))
     return {"ticks": len(shops), "by_action": actions}
 
 

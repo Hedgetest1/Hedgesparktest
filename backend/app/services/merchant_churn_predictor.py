@@ -363,10 +363,17 @@ def compute_churn_report(db: Session) -> dict:
         merchants: [...], summary, computed_at
       }
     """
-    # Get all active merchants
+    # Get all active merchants. Born-bug fix 2026-05-17: this filtered
+    # `install_status='installed'` while the canonical lifecycle value
+    # is 'active' (53 call sites use 'active'; NO merchant is ever
+    # 'installed' — verified live + the comment above says "active").
+    # Effect: compute_churn_report returned ZERO merchants in prod, so
+    # the batched churn map was always empty and EVERY Brain Vero
+    # decision ran with churn_level='unknown' (churn-gated rules
+    # silently never fired). Surfaced by the 2026-05-17 capillary audit.
     merchants = db.execute(text("""
         SELECT shop_domain FROM merchants
-        WHERE install_status = 'installed'
+        WHERE install_status = 'active'
         ORDER BY installed_at DESC
         LIMIT 500
     """)).fetchall()

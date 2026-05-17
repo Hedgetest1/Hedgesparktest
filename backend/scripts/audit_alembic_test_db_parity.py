@@ -120,6 +120,19 @@ def _db_schema_fingerprint(url: str) -> tuple[str, list[str]]:
                 FROM information_schema.columns
                 WHERE table_schema = 'public'
                   AND table_name NOT IN ('alembic_version')
+                  -- Dynamically-managed `events` RANGE-partition
+                  -- children (events_yYYYYmMM) are created at RUNTIME
+                  -- by partition_maintenance_task / the in-DB
+                  -- create_events_partition fn — NOT by alembic. Prod
+                  -- rolls them forward (current+3mo); the test DB sits
+                  -- at migration-head. A per-environment partition-
+                  -- horizon difference is NOT app-schema drift (same
+                  -- rationale as the extension-owned exclusion below).
+                  -- Lossless: Postgres declarative partitioning forces
+                  -- every child's columns ≡ the parent `events` (kept
+                  -- in the fingerprint), so excluding children removes
+                  -- zero drift signal. Closes the whole class.
+                  AND table_name !~ '^events_y[0-9]{4}m[0-9]{2}$'
                   AND table_name NOT IN (
                       SELECT c.relname
                       FROM pg_class c

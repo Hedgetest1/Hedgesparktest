@@ -108,6 +108,7 @@ Main loop calls `run_product_metrics_task` + `run_store_metrics_task`
 | `nudge_compose_task.run` | `ai_compose_pending=True` flag + per-cycle batch cap + `protection_state()` | AI variant upgrade for Pro nudges; self-protects against LLM budget degradation |
 | `night_shift_task.run` | `night_shift_task.is_due()` → `should_run_nightly_now()` day-lock | wraps `night_shift_agent.run_nightly_for_all_pro` once per day; also triggers MA-6 email batch |
 | `rollout_promotion_task.run` | in-process 5-min cooldown | walks flag registry; `promote_if_healthy` handles dwell + SLO gate per flag |
+| `partition_maintenance_task.run` | `partition_maintenance_task.is_due()` → 24h interval | idempotent roll-forward of `events` monthly partitions (current + next 3 months via the in-DB `create_events_partition`); defuses the dated `events_default` cliff (born 2026-05-17, partitions had stopped at 2026-06) |
 | `dashboard_asset_probe_task.run` | invoked by agent_worker `_run_dashboard_asset_probe` (Phase 0-pre-1, see above) — listed here for task-module coverage | owned by agent_worker, not aggregation_worker |
 | `email_dns_status_task.run` | invoked by agent_worker `_run_email_dns_status_check` (Phase 0-pre-1c, see above) — listed here for task-module coverage | owned by agent_worker, not aggregation_worker |
 | `_check_cycle_time_regression` | per-hour cooldown (Redis) | 60s warn / 180s critical threshold; creates `aggregation_cycle_slow` ops_alert |
