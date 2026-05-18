@@ -217,3 +217,86 @@ class TestSentryInitIgnoreErrors:
         )
         assert KeyboardInterrupt in captured["ignore_errors"]
         assert SystemExit in captured["ignore_errors"]
+
+
+# ---------------------------------------------------------------------------
+# Class 3 — backend/DB restart connection-drop noise (born 2026-05-18)
+# ---------------------------------------------------------------------------
+
+
+class TestDbRestartConnectionDropNoise:
+    """Ground-truthed 2026-05-18: ~20 `OperationalError: (psycopg2.
+    OperationalError) server closed the connection unexpectedly`
+    incidents accumulated over 3 days (recurrence_count up to 17),
+    the dominant driver tripping the capillary `sentry_incidents`
+    probe RED every session. Caused by PM2 restarting the backend on
+    every auto-deploy (N times per multi-commit session) — in-flight
+    pooled conns killed mid-query. The exact analogue of the
+    KeyboardInterrupt class: a documented consequence of our own
+    deploy restarts, not a code bug."""
+
+    def test_exact_ground_truthed_string_is_noise(self):
+        # The literal string read from sentry_incidents.raw_subject.
+        assert is_noise(
+            "OperationalError: (psycopg2.OperationalError) "
+            "server closed the connection unexpectedly"
+        ) is True
+
+    def test_all_restart_signatures_are_noise(self):
+        for msg in (
+            "server closed the connection unexpectedly",
+            "psycopg2.OperationalError: terminating connection due to "
+            "administrator command",
+            "OperationalError: SSL connection has been closed unexpectedly",
+            "psycopg2.InterfaceError: connection already closed",
+            "sqlalchemy.exc.OperationalError: the connection is closed",
+        ):
+            assert is_noise(msg) is True, f"should be noise: {msg!r}"
+
+    def test_inbound_composite_subject_body_form_is_noise(self):
+        # sentry_triage builds composite_text = f"{subject}\n{body}";
+        # the extended is_noise must catch it there too (single SoT
+        # → both Sentry layers covered, no separate wiring).
+        composite = (
+            "OperationalError: (psycopg2.OperationalError) server closed "
+            "the connection unexpectedly\n"
+            "  File \"app/api/dashboard.py\", line 412, in overview\n"
+            "    result = db.execute(stmt)\n"
+        )
+        assert is_noise(composite) is True
+
+    def test_case_insensitive_on_fixed_libpq_phrasing(self):
+        assert is_noise(
+            "Server Closed The Connection Unexpectedly"
+        ) is True
+
+    def test_real_operational_errors_are_NOT_noise(self):
+        """NON-VACUITY / no-false-drop — the whole point. A real
+        OperationalError from a SQL/schema/logic bug must STILL
+        surface as an incident. Matched by message shape, not by the
+        `OperationalError` type, precisely so these are not masked."""
+        for real_bug in (
+            'OperationalError: (psycopg2.errors.UndefinedColumn) '
+            'column "foo" does not exist',
+            'OperationalError: (psycopg2.errors.UndefinedTable) '
+            'relation "bar" does not exist',
+            "OperationalError: (psycopg2.errors.DeadlockDetected) "
+            "deadlock detected",
+            "psycopg2.errors.UniqueViolation: duplicate key value "
+            "violates unique constraint",
+            "OperationalError: could not serialize access due to "
+            "concurrent update",
+        ):
+            assert is_noise(real_bug) is False, (
+                f"real DB bug MUST surface, not be filtered: {real_bug!r}"
+            )
+
+    def test_does_not_swallow_unrelated_connection_prose(self):
+        # A merchant-facing message that merely mentions "connection"
+        # without a drop signature must not be filtered.
+        assert is_noise(
+            " shopify_client: connection pool reached max size"
+        ) is False
+        assert is_noise(
+            "Klaviyo connection verified for shop x.myshopify.com"
+        ) is False

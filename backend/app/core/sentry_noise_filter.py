@@ -1,7 +1,7 @@
 """sentry_noise_filter.py — central detection of expected operational
 noise that should be dropped from Sentry rather than counted as bugs.
 
-Two noise classes filtered here:
+Three noise classes filtered here:
 
 1. **Dev-misconfig secret-missing 500s** — pre-2026-05-05 fix
    string-matched a single message ("OPS_API_KEY not configured").
@@ -20,6 +20,36 @@ Two noise classes filtered here:
    behavior. The `recurrence_count` on these incidents previously
    crossed the capillary scope probe threshold (10 in 24h) without
    any underlying regression.
+
+3. **Backend/DB restart connection-drop OperationalError** (born
+   2026-05-18) — when PM2 restarts `wishspark-backend` (every
+   auto-deploy, N times per multi-commit session) or PgBouncer is
+   bounced, in-flight pooled PG connections are killed mid-query and
+   psycopg2/SQLAlchemy raise the canonical libpq message
+   `OperationalError: (psycopg2.OperationalError) server closed the
+   connection unexpectedly` (also `terminating connection due to
+   administrator command`, `SSL connection has been closed
+   unexpectedly`, `connection already closed`). Ground-truthed: ~20
+   such incidents accumulated over 3 days (recurrence_count up to
+   17), the dominant driver tripping the capillary `sentry_incidents`
+   probe RED every session. This is the exact analogue of class 2 —
+   a documented, expected consequence of our own deploy restarts,
+   not a code bug. The connection is transparently re-established by
+   the pool (`pool_recycle`/`pool_pre_ping`); the request that hit
+   the drop failed transiently and is retried by the caller.
+
+   **Honest tradeoff (no theater):** the same libpq string is also
+   emitted by a *real* sustained DB outage. We accept filtering it
+   from the `sentry_incidents` bug counter because a true outage's
+   PRIMARY, purpose-built signal is the dedicated `/system/health`
+   DB-subsystem probe + the capillary `system_health` dimension
+   (loud, immediate, not a 24h-accumulation counter) — counting
+   deploy-restart drops as "bugs" only masks that real signal under
+   self-inflicted noise. Identical rationale to "a graceful shutdown
+   is documented behavior" for class 2. Matched by MESSAGE SHAPE
+   only (not exception type) — a generic `OperationalError` from a
+   SQL/schema bug (`column ... does not exist`, `deadlock detected`,
+   `duplicate key value`) does NOT match and still surfaces.
 
 Two consumers:
 - `app/core/sentry_init.py::_before_send` (outbound — drop at
@@ -92,22 +122,48 @@ def _matches_shutdown_signal(text: str) -> bool:
     return False
 
 
+# Class 3: backend/DB restart connection-drop signatures (born
+# 2026-05-18). High-precision libpq/psycopg2 phrasings that mean
+# "the connection was alive and got dropped" — emitted when PM2
+# restarts the backend or PgBouncer/PG is bounced (every auto-deploy).
+# Each phrase is unambiguously a transient connection loss, NEVER a
+# code-logic bug. Case-insensitive: libpq emits stable lowercase but
+# capture paths vary; the phrases are specific enough that they do not
+# occur in legitimate SQL/schema error messages (pinned by
+# test_db_restart_*: a real OperationalError from a bad column /
+# deadlock / duplicate-key does NOT match).
+_DB_CONN_DROP_NOISE_RE = re.compile(
+    r"server closed the connection unexpectedly"
+    r"|terminating connection due to administrator command"
+    r"|SSL connection has been closed unexpectedly"
+    r"|connection already closed"
+    r"|the connection is closed",
+    re.IGNORECASE,
+)
+
+
 def is_noise(message: str | None) -> bool:
     """Return True iff the message looks like expected operational noise
     (suitable for filtering before Sentry capture).
 
-    Two noise classes covered:
+    Three noise classes covered:
       1. Dev-misconfig secret-missing 500s (regex-matched).
       2. Worker graceful-shutdown signal exceptions (matched against
          `_SIGNAL_SHUTDOWN_NOISE` via `_matches_shutdown_signal` — both
          bare-class and `Class: <msg>` forms).
+      3. Backend/DB restart connection-drop OperationalError (matched
+         by message SHAPE via `_DB_CONN_DROP_NOISE_RE` — NOT exception
+         type, so a real SQL/schema-bug OperationalError still surfaces).
 
     Conservative by design: returns False on None/empty input or any
-    string that doesn't match. Matches are case-sensitive."""
+    string that doesn't match. Classes 1-2 are case-sensitive; class 3
+    is case-insensitive on fixed libpq phrasings."""
     if not message or not isinstance(message, str):
         return False
     # Fast-path: signal-class shutdown exceptions (bare OR Class:msg form)
     if _matches_shutdown_signal(message):
+        return True
+    if _DB_CONN_DROP_NOISE_RE.search(message):
         return True
     return bool(_NOISE_RE.search(message))
 
