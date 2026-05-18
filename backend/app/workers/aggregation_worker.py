@@ -130,6 +130,58 @@ def log(msg: str) -> None:
     _log.info(msg)
 
 
+def _prewarm_hot_tier(hot_sorted, budget_s, *, _now=time.monotonic) -> int:
+    """J1 jewel-J2 (2026-05-18): a dedicated, budget-PROTECTED dashboard
+    prewarm pass over the HOT tier BEFORE the ~10 heavy store_metrics/
+    SIP/autonomous sub-ops.
+
+    Why: the dashboard prewarm is the 7th of ~10 heavy per-shop
+    sub-ops; a 240s-budget break BEFORE #7 left HOT dashboards cold.
+    Running it FIRST gives it a protected slice — STRICTLY BETTER
+    than #7-of-10.
+
+    HONEST SCOPE (independent Agent a1639e5, 2026-05-18 — do NOT
+    overclaim): `prewarm_lite_dashboard` is cheap when the cache is
+    warm (one Redis cache_get → returns False) and ~18-query when
+    expired. This pass is cheap ONLY if the cache survives between
+    consecutive passes, i.e. PERIOD < TTL_DASHBOARD. The real worker
+    period is `run_cycle + sleep(300) ≈ 350-600s` > TTL_DASHBOARD
+    (360s), so at 10k steady-state the cache is EXPIRED by the next
+    pass ⟹ this pass is cold-build-bound and a fixed budget covers
+    only a fraction of a large HOT tier. Therefore this is a
+    SAFE/ADDITIVE PROTECTION IMPROVEMENT (prewarm first, not #7), NOT
+    a guaranteed 10k cold-cliff closure. Full closure is the J2
+    architectural decision (raise TTL≥period | rate-limit the worker
+    cadence | a decoupled fast prewarm loop) — founder-domain
+    tradeoffs, specified in SESSION_STATE.
+
+    ADDITIVE / lowest-blast-radius on a core every-5-min worker: the
+    heavy per-shop block KEEPS its own prewarm (a cheap warm-skip
+    after this pass for any shop this warmed) ⟹ zero behaviour change
+    for COLD merchants, small deployments, or any cycle where HOT
+    fits the budget. `_now` is injected so the budget cut-off is
+    deterministically testable. Returns the number of HOT shops
+    actually attempted."""
+    from app.api.dashboard import prewarm_lite_dashboard
+    from app.core.database import SessionLocal
+    start = _now()
+    done = 0
+    for shop in hot_sorted:
+        if _now() - start > budget_s:
+            log(f"prewarm-first: budget {budget_s}s hit after "
+                f"{done}/{len(hot_sorted)} hot — heavy loop continues")
+            break
+        db = SessionLocal()
+        try:
+            prewarm_lite_dashboard(db, shop)
+        except Exception as exc:
+            log(f"prewarm-first error for {shop} (non-fatal): {exc}")
+        finally:
+            db.close()
+        done += 1
+    return done
+
+
 # ---------------------------------------------------------------------------
 # WorkerState helpers
 # ---------------------------------------------------------------------------
@@ -809,6 +861,29 @@ def _run_cycle_inner() -> None:
                 _cycle_shops = _hot_sorted + _cold_slice
                 _n_hot = len(_hot_sorted)
                 _processed_this_cycle = 0
+                # ── J1 jewel-J2 (2026-05-18): give the dashboard
+                # prewarm a PROTECTED FIRST slice of the shared 240s
+                # budget instead of being heavy-sub-op #7 (a budget
+                # break before #7 left HOT dashboards cold). `_agg_
+                # start` is set BEFORE this, so the heavy loop's
+                # `monotonic-_agg_start>240` already counts this pass
+                # ⟹ store_metrics total ≤240s (NB the real worker
+                # PERIOD is run_cycle + sleep(300) ≈ 350-600s, NOT
+                # 300s). HONEST SCOPE (independent Agent a1639e5,
+                # 2026-05-18): this is STRICTLY-BETTER protection +
+                # additive/safe, but it does NOT by itself close the
+                # 10k steady-state cold-cliff — period(~350-600s) >
+                # TTL_DASHBOARD(360s) ⟹ at 10k the prewarm cache is
+                # expired by the next pass ⟹ this pass is cold-build,
+                # 90s covers only ~2-18% of a 2k HOT tier. FULL closure
+                # is the J2 architectural decision (TTL≥period |
+                # rate-limited cadence | decoupled fast prewarm loop) —
+                # founder-domain tradeoffs, see SESSION_STATE. This
+                # ships as the safe improvement, NOT a closure claim.
+                _prewarm_hot_tier(
+                    _hot_sorted,
+                    int(os.getenv("AGG_PREWARM_BUDGET_S", "90")),
+                )
                 from app.core.query_count_monitor import worker_scope as _worker_scope
                 for shop in _cycle_shops:
                     if time.monotonic() - _agg_start > _agg_budget_seconds:
