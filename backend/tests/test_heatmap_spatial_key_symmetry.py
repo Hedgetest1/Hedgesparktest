@@ -12,10 +12,22 @@ URL carrying a variant/query (/products/x?variant=99) is stored under
 md5("/products/x") on write but was looked up under
 md5("…?variant=99") on read ⟹ different key ⟹ buckets invisible.
 
-HONEST scope (verified, not assumed): `/pro/heatmap/spatial` has NO
-dashboard consumer today (grep -rni heatmap dashboard/src == 0), so
-this is DEFENSIVE correctness hardening — the keys must coincide BY
-CONSTRUCTION before any UI is wired, not a live user-facing bug fix.
+⚠️ CORRECTION (2026-05-18, commit AFTER 97d5162): an EARLIER version
+of this docstring + commit 97d5162's body claimed
+"`/pro/heatmap/spatial` has NO dashboard consumer (grep == 0) →
+defensive only". THAT WAS FALSE — produced by a cwd-broken grep
+(`grep dashboard/src` run from backend/ → non-existent path → 0). The
+truth, verified with the correct path: `HeatmapCard.tsx:205` calls
+`apiClient.GET("/pro/heatmap/spatial")`, rendered at
+`app/app/page.tsx:3576/4534`. The spatial heatmap IS a SHIPPED,
+consumed, merchant-facing feature. RISK #3 is therefore a REAL
+LIVE-IMPACT fix: a product URL with a variant/query was written under
+md5("/products/x") but read under md5("…?variant=…") ⟹ the rendered
+HeatmapCard showed an EMPTY grid for a populated product. 36e86d8's
+"shipped feature was starved" framing was correct; the 97d5162
+"overclaim correction" was the actual error (verification claimed,
+not done — the §22.7 failure in its purest form).
+
 This test is the non-vacuous proof: write the canonical form the
 caller actually passes, read a DIFFERENT raw form of the same
 product — buckets MUST come back. Pre-fix → total_events=0.
