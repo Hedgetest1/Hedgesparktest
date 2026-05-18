@@ -34,8 +34,8 @@ import json
 import multiprocessing as mp
 import sys
 import time
-import urllib.error
-import urllib.request
+import http.client
+from urllib.parse import urlparse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -63,10 +63,40 @@ def _seed_known_shop_cache(shops: list[str], ttl: int) -> None:
         cache_set(f"hs:known_shop:{s}", True, ttl)
 
 
-def _worker(shops: list[str], duration: float, q: "mp.Queue") -> None:
+def _src_ip(widx: int) -> str:
+    """Distinct loopback source per worker so each worker is a
+    DISTINCT per-IP rate-limit bucket server-side (the WRITE-Agent
+    finding 2026-05-18: a single-IP rig is per-IP-RL-shadowed and
+    structurally CANNOT measure INGEST_ADMIT_BUDGET; binding client
+    sockets across 127.0.0.0/8 — all loopback on Linux — un-shadows
+    it on ONE host, proven by live probe). Sweeps 127.0.A.B with
+    B∈[2,251] (avoids .0/.1/.255), A rolls over → ~64000 distinct
+    IPs, ≫ any --procs."""
+    a = widx // 250
+    b = 2 + (widx % 250)
+    return f"127.0.{a}.{b}"
+
+
+def _worker(shops: list[str], duration: float, q: "mp.Queue",
+            widx: int) -> None:
     lat: list[float] = []
     n = ok = shed = err = qsum = 0
     i = 0
+    u = urlparse(_BASE)
+    host = u.hostname or "127.0.0.1"
+    port = u.port or 8000
+    src = _src_ip(widx)
+    hdr = {"Content-Type": "application/json"}
+
+    def _conn() -> "http.client.HTTPConnection":
+        # source_address binds the CLIENT socket to a distinct
+        # 127.0.0.x → distinct request.client.host server-side
+        # (extract_client_ip returns the socket peer on direct
+        # loopback, no CF/XFF — Agent-verified).
+        return http.client.HTTPConnection(
+            host, port, timeout=30, source_address=(src, 0))
+
+    c = _conn()
     end = time.monotonic() + duration
     while time.monotonic() < end:
         shop = shops[i % len(shops)]
@@ -79,27 +109,33 @@ def _worker(shops: list[str], duration: float, q: "mp.Queue") -> None:
             "page_url": f"https://{shop}/products/p{i % 50}",
             "timestamp": int(time.time() * 1000),
         }).encode()
-        req = urllib.request.Request(
-            _BASE + "/track", data=body, method="POST",
-            headers={"Content-Type": "application/json"})
         t0 = time.perf_counter()
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                r.read()
-                ok += 1
-                qsum += int(r.headers.get("X-Query-Count", 0) or 0)
-        except urllib.error.HTTPError as he:
-            # 429 = J3-part-1 graceful admission shed (EXPECTED under
-            # offered>capacity — the system working, NOT a failure).
-            # Anything else 4xx/5xx = a real error / the cascade.
-            if he.code == 429:
+            c.request("POST", "/track", body=body, headers=hdr)
+            r = c.getresponse()
+            r.read()                       # must drain before reuse
+            if r.status == 429:
+                # graceful admission/RL shed (EXPECTED under
+                # offered>capacity — the system working).
                 shed += 1
+            elif 200 <= r.status < 300:
+                ok += 1
+                qsum += int(r.getheader("X-Query-Count", 0) or 0)
             else:
-                err += 1
+                err += 1               # any other 4xx/5xx = real error
         except Exception:
-            err += 1  # timeout / conn refused = the cascade
+            err += 1                   # timeout / conn refused = cascade
+            try:
+                c.close()
+            except Exception:
+                pass
+            c = _conn()                # rebuild, keep distinct src
         lat.append((time.perf_counter() - t0) * 1000.0)
         n += 1
+    try:
+        c.close()
+    except Exception:
+        pass
     q.put((n, ok, shed, err, qsum, lat))
 
 
@@ -181,7 +217,7 @@ def main() -> int:
         sampler = mp.Process(target=_broker_sampler,
                              args=(args.duration + 1.0, bq))
         workers = [mp.Process(target=_worker,
-                              args=(slices[i], float(args.duration), q))
+                              args=(slices[i], float(args.duration), q, i))
                    for i in range(args.procs)]
         t0 = time.monotonic()
         sampler.start()
