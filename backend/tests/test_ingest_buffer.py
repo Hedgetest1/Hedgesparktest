@@ -204,6 +204,57 @@ def test_drain_isolates_poison_row_keeps_the_rest():
         db0.close()
 
 
+def test_parallel_drainers_are_disjoint_no_double_write_no_loss():
+    """STRUCTURAL SAFETY of the N-parallel-drainer fix (2026-05-18,
+    independent 10k WRITE audit #1 finding). N drainers race the SAME
+    buffer with ZERO lock; correctness rests entirely on `_take_batch`
+    being an atomic `LPOP key count` (disjoint pops). Proof: enqueue M
+    events with UNIQUE visitor_ids, run N threads each calling the REAL
+    drain_events() concurrently until empty, then assert EXACTLY M rows
+    persisted and M DISTINCT visitors — a double-read would inflate
+    both; a lost batch would deflate both. REAL DB round-trip."""
+    import uuid, threading
+    from app.core.database import SessionLocal
+    from sqlalchemy import text
+    shop = f"wlrig_paradrain_{uuid.uuid4().hex[:8]}.myshopify.com"
+    M, N = 2000, 4
+    db0 = SessionLocal()
+    try:
+        for i in range(M):
+            assert ib.enqueue_event({
+                "shop_domain": shop, "visitor_id": f"v{i}",
+                "event_type": "product_view",
+                "timestamp": 1747000000000 + i}) is True
+
+        def _runner():
+            # Loop until the shared buffer is drained; atomic LPOP-count
+            # hands each thread DISJOINT batches (no lock).
+            while ib.drain_events(max_total=100_000) > 0 or ib.buffer_depth() > 0:
+                pass
+
+        threads = [threading.Thread(target=_runner) for _ in range(N)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+        assert not any(t.is_alive() for t in threads), "a drainer hung"
+
+        ev = db0.execute(text(
+            "SELECT count(*) FROM events WHERE shop_domain=:s"),
+            {"s": shop}).scalar()
+        vi = db0.execute(text(
+            "SELECT count(DISTINCT visitor_id) FROM events WHERE shop_domain=:s"),
+            {"s": shop}).scalar()
+        assert ev == M, f"events={ev}, expected exactly {M} (double-write or loss)"
+        assert vi == M, f"distinct visitors={vi}, expected {M} (double-read inflates)"
+        assert ib.buffer_depth() == 0, "buffer not fully drained by N racers"
+    finally:
+        db0.execute(text("DELETE FROM events WHERE shop_domain=:s"), {"s": shop})
+        db0.execute(text("DELETE FROM visitors WHERE shop_domain=:s"), {"s": shop})
+        db0.commit()
+        db0.close()
+
+
 def test_drain_bulk_insert_sql_shape(monkeypatch):
     """Cheap shape guard (complements the real round-trip above):
     drain issues an events bulk INSERT + a visitor upsert ON CONFLICT,

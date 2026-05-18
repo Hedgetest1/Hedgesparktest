@@ -1051,16 +1051,28 @@ def _run_cycle_inner() -> None:
 # ---------------------------------------------------------------------------
 
 def _ingest_drain_loop() -> None:
-    """J3-part-2 drain runner. Hosted as a daemon thread in the
-    aggregation_worker SINGLETON process (PM2 instances:1 + worker_lock)
-    — exactly ONE drainer cluster-wide, no new PM2 process (no
-    ecosystem.config.js/TIER_2, no founder RAM-spend), no coordination.
-    The 5-min worker cycle is far too slow for a 10k ingest buffer
-    (it would overflow-trim ~93% of analytics between cycles); a tight
-    thread keeps drain latency at seconds + the buffer bounded.
-    `drain_events` uses its OWN SessionLocal (worker-style, NOT a
-    request dep) and atomic LPOP-count, so this is pool- and
-    concurrency-safe. Never dies: every exception is caught + retried."""
+    """J3-part-2 drain runner — ONE of `INGEST_DRAIN_CONCURRENCY`
+    identical daemon threads in the aggregation_worker SINGLETON
+    process (PM2 instances:1 + worker_lock; no new PM2 process / no
+    ecosystem.config.js/TIER_2 / no founder RAM-spend).
+
+    Why N parallel, not 1 (independent 10k WRITE-path audit
+    2026-05-18, the #1 highest-leverage finding): a SINGLE drainer's
+    measured ceiling is ~17.2k events/s (≈58ms / 1000-row
+    execute_values, live DB), but 10k active merchants offer
+    ~10k–500k events/s. One drainer ⟹ the buffer overflow-trims and
+    silently drops the MAJORITY of analytics beyond ~1.7 ev/s/merchant
+    — cascade-immune but lossy. N drainers lift the ceiling ~N×.
+    This is structurally SAFE with zero coordination/lock BECAUSE
+    `_take_batch` is an atomic `LPOP key count` (Redis ≥6.2): every
+    drainer pops a DISJOINT batch — concurrent drainers can never
+    double-read (the in-code invariant `ingest_buffer._take_batch`
+    already documents). Each thread runs its OWN `drain_events` with
+    its OWN SessionLocal (worker-style, not a request dep), so DB
+    conns scale as N (N=4 default ⟹ 4 PgBouncer server conns out of
+    the 80-server pool, multiplexed with the 8 web workers — ample
+    headroom; tune via the env knob, the multi-IP write rig MEASURES
+    the right N). Never dies: every exception caught + retried."""
     import time as _t
     from app.services.ingest_buffer import drain_events, buffer_depth
     _IDLE = int(os.getenv("INGEST_DRAIN_IDLE_SLEEP_S", "5"))
@@ -1083,9 +1095,18 @@ def main() -> None:
     log("worker started")
 
     import threading as _threading
-    _threading.Thread(
-        target=_ingest_drain_loop, name="ingest-drain", daemon=True
-    ).start()
+    # N parallel drainers (atomic-LPOP-disjoint, no lock needed — see
+    # _ingest_drain_loop docstring). Default 4 ⟹ ~4× the measured
+    # ~17.2k ev/s single-drainer ceiling, covering realistic 10k load
+    # (~2-5 ev/s/merchant); env-tunable, the multi-IP write rig
+    # measures the right N. Bounded [1, 32] so a misconfig can't
+    # exhaust the PgBouncer server pool.
+    _drain_n = max(1, min(32, int(os.getenv("INGEST_DRAIN_CONCURRENCY", "4"))))
+    for _i in range(_drain_n):
+        _threading.Thread(
+            target=_ingest_drain_loop, name=f"ingest-drain-{_i}", daemon=True
+        ).start()
+    log(f"ingest-drain: {_drain_n} parallel drainer thread(s) started")
 
     while True:
         from app.core.distributed_lock import worker_lock, extend_lock
