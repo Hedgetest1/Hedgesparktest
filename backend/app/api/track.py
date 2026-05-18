@@ -1027,6 +1027,25 @@ def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_lazy
             # the #6 lazy WRITE session).
             if item.event_type != "purchase":
                 enqueue_event(_event_fields_from_payload(item))
+                # Spatial heatmap parity with single /track's
+                # non-purchase branch. spark-tracker.js sends click +
+                # mousemove (the ONLY events _bump_heatmap_bucket acts
+                # on — it self-gates on event_type) via sendEventBatched
+                # ⟹ /track/batch. The pre-2026-05-18 batch never bumped
+                # the heatmap, so the Lite spatial HeatmapCard was
+                # structurally starved of ~all its data in production
+                # (single /track only ever gets page_view/product_view,
+                # which heatmap-no-op). Redis-only (no DB / no pool
+                # cost) — belongs on the buffered branch; a purchase is
+                # never click/mousemove so a purchase-branch call would
+                # be provably dead code.
+                _bump_heatmap_bucket(
+                    shop_domain=item.shop_domain,
+                    url=normalize_product_url(item.product_url) or item.page_url or "",
+                    event_type=item.event_type,
+                    x_pct=item.x_pct,
+                    y_pct=item.y_pct,
+                )
                 _store_shopify_y_mapping(item)
                 buffered_ok += 1
                 continue

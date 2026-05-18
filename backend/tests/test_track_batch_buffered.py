@@ -80,7 +80,8 @@ def test_all_non_purchase_batch_holds_zero_db_connections():
          patch.object(ia, "ingest_admit", return_value="tok"), \
          patch.object(ia, "ingest_release"), \
          patch.object(ibuf, "enqueue_event", return_value=True) as enq, \
-         patch("app.api.track._store_shopify_y_mapping"):
+         patch("app.api.track._store_shopify_y_mapping"), \
+         patch("app.api.track._bump_heatmap_bucket"):
         holder = dbmod._LazyDbSession()
         resp = track_event_batch(pl, db=holder)
         SL.assert_not_called()            # ← 0 pooled connections
@@ -100,6 +101,7 @@ def test_mixed_batch_buffers_non_purchase_and_syncs_purchase():
          patch.object(ia, "ingest_release"), \
          patch.object(ibuf, "enqueue_event", return_value=True) as enq, \
          patch("app.api.track._store_shopify_y_mapping"), \
+         patch("app.api.track._bump_heatmap_bucket"), \
          patch("app.api.track._upsert_visitor") as upv, \
          patch("app.api.track._persist_purchase") as pp:
         holder = dbmod._LazyDbSession()
@@ -129,6 +131,7 @@ def test_purchase_commit_integrityerror_keeps_buffered_accepted():
          patch.object(ia, "ingest_release"), \
          patch.object(ibuf, "enqueue_event", return_value=True) as enq, \
          patch("app.api.track._store_shopify_y_mapping"), \
+         patch("app.api.track._bump_heatmap_bucket"), \
          patch("app.api.track._upsert_visitor"), \
          patch("app.api.track._persist_purchase"):
         holder = dbmod._LazyDbSession()
@@ -138,6 +141,31 @@ def test_purchase_commit_integrityerror_keeps_buffered_accepted():
         fake.rollback.assert_called_once()  # … and rolled back
     body = bytes(resp.body)
     assert b'"accepted":2' in body          # buffered survive (was 0)
+
+
+def test_batch_click_feeds_the_spatial_heatmap():
+    """Side-effect parity: a batched click (the tracker's heatmap
+    transport) MUST bump the Lite spatial heatmap, exactly like single
+    /track's non-purchase branch. Pre-2026-05-18 the batch dropped it
+    ⟹ the shipped HeatmapCard was structurally starved."""
+    pl = BatchTrackPayload(events=[
+        _payload("click", "v1"),
+        _payload("page_view", "v2"),
+    ])
+    with patch.object(dbmod, "SessionLocal") as SL, \
+         patch.object(ia, "ingest_admit", return_value="tok"), \
+         patch.object(ia, "ingest_release"), \
+         patch.object(ibuf, "enqueue_event", return_value=True), \
+         patch("app.api.track._store_shopify_y_mapping"), \
+         patch("app.api.track._bump_heatmap_bucket") as hm:
+        holder = dbmod._LazyDbSession()
+        track_event_batch(pl, db=holder)
+        SL.assert_not_called()                 # still 0-conn
+        assert hm.call_count == 2              # both non-purchase items
+        kw = hm.call_args_list[0].kwargs
+        assert kw["event_type"] == "click"
+        assert kw["shop_domain"] == "x.myshopify.com"
+        assert "x_pct" in kw and "y_pct" in kw  # coords forwarded
 
 
 def test_audit_track_batch_buffered_is_non_vacuous(tmp_path):
@@ -157,6 +185,7 @@ def test_audit_track_batch_buffered_is_non_vacuous(tmp_path):
         "    for item in payload.events:\n"
         "        if item.event_type != 'purchase':\n"
         "            enqueue_event(_event_fields_from_payload(item))\n"
+        "            _bump_heatmap_bucket(shop_domain=item.shop_domain)\n"
         "            continue\n"
         "        db.add(Event(**_event_fields_from_payload(item)))\n"
         "    return {}\n"

@@ -24,9 +24,19 @@ Two contracts on app/api/track.py, both born 2026-05-18:
       attribution-loss drift). One field source ⟹ a column add is one
       edit and can never diverge per-handler again.
 
+  (C) track_event_batch MUST call `_bump_heatmap_bucket` — full
+      side-effect parity with single /track's non-purchase branch.
+      spark-tracker.js sends click + mousemove (the ONLY events the
+      heatmap acts on) via sendEventBatched ⟹ /track/batch; before
+      2026-05-18 the batch never bumped the heatmap, so the Lite
+      spatial HeatmapCard was structurally starved of ~all its data
+      in production. Omitting it again silently re-breaks a shipped
+      feature with a green test suite.
+
 Non-vacuous: (A) flags a track_event_batch with no enqueue_event;
 (B) flags the exact pre-fix `Event(shop_domain=...)` literal-kwarg
-shape. GREEN only on the unified tree. A textual
+shape; (C) flags a batch handler with no _bump_heatmap_bucket.
+GREEN only on the unified tree. A textual
 `# event-fields: ok — <reason>` marker on a def line opts that
 function out of (B) for a genuine exception.
 """
@@ -72,6 +82,16 @@ def main() -> int:
             "not call enqueue_event — non-purchase batch items would "
             "sync-INSERT and pool-cascade at 10k (honest-residual #7 "
             "regressed). Route non-purchase via the ingest buffer."
+        )
+
+    # ---- (C) batch must bump the heatmap (side-effect parity) ------
+    if batch_fn is not None and not _calls(batch_fn, "_bump_heatmap_bucket"):
+        violations.append(
+            f"  app/api/track.py:{batch_fn.lineno} {_BATCH_FUNC}() does "
+            "not call _bump_heatmap_bucket — batched click/mousemove "
+            "(the tracker's heatmap transport) would not feed the Lite "
+            "spatial HeatmapCard (shipped feature silently starved). "
+            "Mirror single /track's non-purchase branch."
         )
 
     # ---- (B) every Event(...) must be Event(**fields) --------------
