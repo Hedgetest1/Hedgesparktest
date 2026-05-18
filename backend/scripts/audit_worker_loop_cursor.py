@@ -46,9 +46,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _audit_io import safe_read_text  # noqa: E402  TOCTOU-safe read
 
 _ROOT = Path(__file__).resolve().parent.parent
+# The time-budget-break detector scans worker MAIN loops only — that
+# pattern (a `for` + `break` + `.monotonic()`) is a worker-loop idiom;
+# scanning all of app/services for it would risk false positives on
+# unrelated timed code without catching a real new class.
 _WORKER_DIRS = [
     _ROOT / "app" / "workers",
     _ROOT / "app" / "workers" / "tasks",
+]
+# The unordered-limited-Merchant-scan detector ALSO scans app/services:
+# the witnessed §11 miss (`merchant_brain.tick_all_active_merchants`,
+# pre-77f3a34) was a worker-INVOKED service function, not a worker
+# module. Empirically (2026-05-18) ZERO `query(Merchant)…limit()`
+# chains exist in app/services today (77f3a34 fixed the only one) ⟹
+# adding this scope is zero-FP now and purely future-regression-
+# blocking. This closes the preventer-coverage gap honestly: a
+# directory-only extension would NOT have flagged the miss (it has no
+# time-budget/break — the existing detector is structurally blind to
+# the `.limit(N)` no-cursor class), so a SECOND detector was required,
+# not just a wider glob (that would have been theater).
+_MERCHANT_SCAN_DIRS = [
+    _ROOT / "app" / "workers",
+    _ROOT / "app" / "workers" / "tasks",
+    _ROOT / "app" / "services",
 ]
 _OPT_OUT = "worker-loop-cursor: ok"
 
@@ -116,6 +136,101 @@ def _function_has_cursor(fn: ast.AST, src: str) -> bool:
     return False
 
 
+def _query_call_targets_merchant(call: ast.Call) -> bool:
+    """True iff this `.query(...)` Call selects the `Merchant` entity:
+    `query(Merchant)` (Name) OR `query(Merchant.shop_domain)` /
+    `query(Merchant.id, ...)` (Attribute on the Merchant name). Robust
+    to import path (keys on the `Merchant` symbol, not a module path)."""
+    for arg in call.args:
+        if isinstance(arg, ast.Name) and arg.id == "Merchant":
+            return True
+        if isinstance(arg, ast.Attribute) and isinstance(arg.value, ast.Name) \
+                and arg.value.id == "Merchant":
+            return True
+    return False
+
+
+def _chain_has(limit_call: ast.Call, attr_name: str) -> bool:
+    """True iff `.<attr_name>(...)` appears in the dotted-call receiver
+    chain of this `.limit(...)` call."""
+    node: ast.AST | None = limit_call.func
+    while node is not None:
+        if isinstance(node, ast.Attribute):
+            if node.attr == attr_name:
+                return True
+            node = node.value
+        elif isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Attribute) and f.attr == attr_name:
+                return True
+            node = f
+        else:
+            break
+    return False
+
+
+def _limit_receiver_is_merchant_query(limit_call: ast.Call) -> bool:
+    """Walk the dotted-call receiver chain of a `.limit(...)` call
+    (`recv.query(Merchant).filter(...).limit(N)`) and report whether a
+    `.query(Merchant…)` appears in it AND it is NOT an offset-paginated
+    full sweep.
+
+    `.offset(...)` in the same chain is a CLEAR: `query(Merchant)
+    .order_by(id).offset(o).limit(BATCH)` inside the standard
+    `while True: … offset += BATCH; if not rows: break` loop processes
+    EVERY merchant each cycle — offset is itself the cross-batch
+    progression, not a per-cycle bounded slice. The tail-starvation
+    class is specifically a *fixed-window* `.limit(N)` with no offset
+    AND no cursor (the merchant_brain pre-77f3a34 shape). `.order_by`
+    is NOT a clear on its own — an ordered-but-cursorless fixed
+    `.limit(N)` still re-grinds the same first-N every cycle."""
+    if _chain_has(limit_call, "offset"):
+        return False  # offset-paginated full sweep — valid coverage
+    node: ast.AST | None = limit_call.func  # the Attribute `.limit`
+    # Descend the receiver chain: Attribute.value / Call.func.value.
+    while node is not None:
+        if isinstance(node, ast.Attribute):
+            node = node.value
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr == "query" \
+                    and _query_call_targets_merchant(node):
+                return True
+            node = func
+        elif isinstance(node, ast.Name):
+            break
+        else:
+            break
+    # Fallback: any `query(Merchant…)` Call inside the limit expression
+    # subtree (covers `query(Merchant)` not in the strict .func chain,
+    # e.g. wrapped in a comprehension generator).
+    for sub in ast.walk(limit_call):
+        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) \
+                and sub.func.attr == "query" \
+                and _query_call_targets_merchant(sub):
+            return True
+    return False
+
+
+def _unordered_limited_merchant_scans(fn: ast.AST) -> list[ast.Call]:
+    """The §11-miss class (witnessed: `merchant_brain.
+    tick_all_active_merchants` pre-77f3a34 —
+    `db.query(Merchant).filter(install_status=='active').limit(
+    max_shops)` with NO order_by, NO cursor, NO time-budget). Returns
+    the offending `.limit(...)` Call nodes in a cursorless function.
+    Structurally invisible to `_is_time_budget_break_loop` (no break /
+    monotonic) — this is why a wider glob alone was theater."""
+    out: list[ast.Call] = []
+    for n in ast.walk(fn):
+        if not isinstance(n, ast.Call):
+            continue
+        f = n.func
+        if isinstance(f, ast.Attribute) and f.attr == "limit" \
+                and _limit_receiver_is_merchant_query(n):
+            out.append(n)
+    return out
+
+
 def _violations_in(path: Path) -> list[str]:
     src = safe_read_text(path)
     if src is None:
@@ -155,9 +270,57 @@ def _violations_in(path: Path) -> list[str]:
     return out
 
 
+def _merchant_scan_violations_in(path: Path) -> list[str]:
+    """Detector 2 — the unordered-limited-Merchant-scan class (§11
+    miss). Scans workers + services (the miss lived in app/services).
+
+    Opt-out is PER-FUNCTION (`# worker-loop-cursor: ok — <reason>`
+    inside the function body), NOT file-level: a module like
+    agent_worker.py legitimately has both a self-draining transient
+    queue (opt-out) AND time-budget loops that MUST stay checked — a
+    file-level opt-out would blind the whole module."""
+    src = safe_read_text(path)
+    if src is None:
+        return []
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []
+    out: list[str] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        scans = _unordered_limited_merchant_scans(fn)
+        if not scans:
+            continue
+        if _function_has_cursor(fn, src):
+            continue
+        if _OPT_OUT in (ast.get_source_segment(src, fn) or ""):
+            continue  # per-function documented opt-out
+        for call in scans:
+            out.append(
+                f"  {path.relative_to(_ROOT)}:{call.lineno} — function "
+                f"`{fn.name}` does `query(Merchant…).limit(…)` with NO "
+                f"cross-cycle resume cursor. At 10k a per-cycle "
+                f"`.limit(N)` over active merchants re-selects the SAME "
+                f"arbitrary N every cycle → the tail is systematically "
+                f"never ticked (the merchant_brain pre-77f3a34 §11 "
+                f"miss: 99% of merchants never brain-ticked at 10k). "
+                f"Add the shared cursor (app.workers._rr_cursor: "
+                f"load_cursor/rr_slice/next_cursor/save_cursor — see "
+                f"merchant_brain.tick_all_active_merchants post-fix), "
+                f"or opt out with `# {_OPT_OUT} — <reason>` if this is "
+                f"a genuine one-shot bounded sample, not a cyclic "
+                f"all-tenant tick."
+            )
+    return out
+
+
 def main() -> int:
-    seen: set[Path] = set()
     violations: list[str] = []
+
+    # Detector 1 — time-budget `break` worker loop (workers only).
+    seen: set[Path] = set()
     for d in _WORKER_DIRS:
         if not d.exists():
             continue
@@ -166,14 +329,28 @@ def main() -> int:
                 continue
             seen.add(p)
             violations.extend(_violations_in(p))
+
+    # Detector 2 — unordered-limited Merchant scan (workers + services;
+    # the witnessed §11 miss lived in app/services/merchant_brain.py).
+    seen2: set[Path] = set()
+    for d in _MERCHANT_SCAN_DIRS:
+        if not d.exists():
+            continue
+        for p in sorted(d.glob("*.py")):
+            if p in seen2:
+                continue
+            seen2.add(p)
+            violations.extend(_merchant_scan_violations_in(p))
+
     if violations:
-        print("audit_worker_loop_cursor: FAIL — time-budget worker loop "
-              "without a round-robin/keyset resume cursor (the 10k "
+        print("audit_worker_loop_cursor: FAIL — worker/worker-invoked "
+              "loop without a round-robin/keyset resume cursor (the 10k "
               "tail-starvation class, CLAUDE.md §12):")
         print("\n".join(violations))
         return 1
     print("audit_worker_loop_cursor: OK — every time-budget worker loop "
-          "has a cross-cycle resume cursor (no 10k tail starvation).")
+          "AND every query(Merchant…).limit() scan has a cross-cycle "
+          "resume cursor (no 10k tail starvation).")
     return 0
 
 

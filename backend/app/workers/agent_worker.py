@@ -913,6 +913,18 @@ def _run_lifecycle_emails():
 
     All dedup is handled inside submit_lifecycle_intent — safe to call every cycle.
     """
+    # worker-loop-cursor: ok — the stuck/degraded `.limit()` scans run
+    # over the TRANSIENT failed-onboarding population (active merchants
+    # stuck pending/failed >24h / degraded >2h). In healthy operation
+    # that set is near-zero (onboarding completes in minutes); a value
+    # large enough to exceed the per-cycle limit is itself a louder,
+    # separately-alarmed onboarding-pipeline incident. submit_lifecycle_
+    # intent dedup makes re-selecting the same rows incorrectness-safe
+    # (no double-send), so the only scale effect is nudge LATENCY under
+    # an already-alarmed pathology — a per-query round-robin cursor
+    # here is over-eng (§2 r10) for an alarm-dominated scenario, unlike
+    # billing_sync (every Pro merchant, perpetually in-set, revenue
+    # integrity) which got the cursor.
     db = SessionLocal()
     try:
         from app.services.merchant_email_service import submit_lifecycle_intent

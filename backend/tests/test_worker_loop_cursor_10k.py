@@ -310,10 +310,157 @@ def test_audit_opt_out_comment_clears(tmp_path):
 # CLAUDE.md §13 documentation rule
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("key", ["hs:aggregation:cursor", "hs:intel:cursor"])
+@pytest.mark.parametrize("key", [
+    "hs:aggregation:cursor", "hs:intel:cursor", "hs:billing_sync:cursor",
+])
 def test_new_redis_keys_documented_in_claude_md(key):
     claude_md = (_BACKEND.parent / "CLAUDE.md").read_text()
     assert key in claude_md, (
         f"{key} missing from CLAUDE.md §13 — every new Redis key lands "
         f"there in the same commit (§13 rule)"
     )
+
+
+# ---------------------------------------------------------------------------
+# Detector 2 — unordered-limited-Merchant-scan (the §11-miss class,
+# born 2026-05-18 extending the audit to app/services worker-invoked
+# loops; a directory-only widening would have been theater — the
+# time-budget detector is structurally blind to the `.limit(N)`
+# no-break/no-monotonic shape).
+# ---------------------------------------------------------------------------
+
+import ast as _ast
+
+
+def _scan_fn(src: str):
+    """Run detector-2 over the first top-level function in `src`,
+    returning (flagged: bool)."""
+    m = _load_audit()
+    tree = _ast.parse(src)
+    fn = next(n for n in _ast.walk(tree)
+              if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef)))
+    scans = m._unordered_limited_merchant_scans(fn)
+    if not scans or m._function_has_cursor(fn, src):
+        return False
+    if "worker-loop-cursor: ok" in (_ast.get_source_segment(src, fn) or ""):
+        return False
+    return True
+
+
+def test_detector2_flags_the_real_pre77f3a34_merchant_brain_miss():
+    """NON-VACUITY (strongest form — the actual git-historical source,
+    not a synthetic mock): the witnessed §11 miss
+    `merchant_brain.tick_all_active_merchants` pre-77f3a34 MUST be
+    flagged. If this ever stops flagging, the preventer is vacuous."""
+    import subprocess
+    src = subprocess.run(
+        ["git", "-C", str(_BACKEND.parent), "show",
+         "77f3a34^:backend/app/services/merchant_brain.py"],
+        capture_output=True, text=True, timeout=30,
+    ).stdout
+    if not src:
+        pytest.skip("git history for 77f3a34 unavailable")
+    m = _load_audit()
+    tree = _ast.parse(src)
+    flagged = [
+        fn.name for fn in _ast.walk(tree)
+        if isinstance(fn, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+        and m._unordered_limited_merchant_scans(fn)
+        and not m._function_has_cursor(fn, src)
+    ]
+    assert "tick_all_active_merchants" in flagged
+
+
+def test_detector2_clears_when_rr_cursor_wired():
+    assert _scan_fn(
+        "def tick():\n"
+        "    from app.workers._rr_cursor import rr_slice as _rr_slice\n"
+        "    doms = sorted(r[0] for r in "
+        "db.query(Merchant.shop_domain).all())\n"
+        "    for d in _rr_slice(doms, 0, 10):\n"
+        "        work(d)\n"
+    ) is False
+
+
+def test_detector2_offset_pagination_full_sweep_is_cleared():
+    """The lite/merchant digest shape: `.order_by(id).offset(o)
+    .limit(N)` inside a `while: offset+=N` loop covers EVERYONE each
+    cycle — offset IS the cross-batch progression, not a fixed window.
+    Must NOT be flagged (real precision, not a silenced FP)."""
+    assert _scan_fn(
+        "def run_digest():\n"
+        "    offset = 0\n"
+        "    while True:\n"
+        "        ms = (db.query(Merchant)\n"
+        "              .filter(Merchant.install_status=='active')\n"
+        "              .order_by(Merchant.id).offset(offset)"
+        ".limit(200).all())\n"
+        "        if not ms: break\n"
+        "        offset += 200\n"
+    ) is False
+
+
+def test_detector2_flags_fixed_window_limit_no_cursor():
+    """The exact bug class: fixed `.limit(N)` over Merchant, no
+    order_by, no offset, no cursor."""
+    assert _scan_fn(
+        "def tick(max_shops=100):\n"
+        "    shops = [m.shop_domain for m in "
+        "db.query(Merchant).filter(Merchant.install_status=='active')"
+        ".limit(max_shops).all()]\n"
+        "    for s in shops: work(s)\n"
+    ) is True
+
+
+def test_detector2_per_function_optout_is_granular_not_file_level():
+    """The key correctness property: an opt-out in ONE function must
+    NOT blind a sibling cursorless function in the same module
+    (file-level opt-out would — agent_worker has both an opted-out
+    self-draining queue AND time-budget loops that must stay checked)."""
+    m = _load_audit()
+    src = (
+        "def queue_drain():\n"
+        "    # worker-loop-cursor: ok — self-draining via NOT EXISTS\n"
+        "    rows = db.query(Merchant).filter(x).limit(50).all()\n"
+        "    for r in rows: handle(r)\n"
+        "\n"
+        "def bug_sibling(n=10):\n"
+        "    rows = db.query(Merchant).filter(y).limit(n).all()\n"
+        "    for r in rows: work(r)\n"
+    )
+    tree = _ast.parse(src)
+    flagged = []
+    for fn in _ast.walk(tree):
+        if not isinstance(fn, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            continue
+        if (m._unordered_limited_merchant_scans(fn)
+                and not m._function_has_cursor(fn, src)
+                and "worker-loop-cursor: ok"
+                not in (_ast.get_source_segment(src, fn) or "")):
+            flagged.append(fn.name)
+    assert flagged == ["bug_sibling"], (
+        f"per-function opt-out not granular: {flagged} "
+        f"(queue_drain opted out; bug_sibling MUST still flag)"
+    )
+
+
+def test_billing_sync_wires_the_rr_cursor():
+    """The 🔴 real revenue bug found by detector 2: run_billing_sync
+    must now use the shared round-robin cursor (regression pin — a
+    revert to the cursorless `.limit(_MAX_PER_CYCLE)` would re-strand
+    ~all Pro merchants from billing verification at 10k)."""
+    src = (_BACKEND / "app" / "services" / "billing_sync.py").read_text()
+    assert "from app.workers._rr_cursor import" in src
+    assert 'hs:billing_sync:cursor' in src
+    for tok in ("_rr_load(", "_rr_slice(", "_rr_save(", "_rr_next("):
+        assert tok in src, f"billing_sync missing {tok}"
+
+
+def test_uninstall_erasure_self_drains_via_not_exists():
+    """The 🔴 real GDPR-Art.17 bug found by detector 2: the scan must
+    exclude merchants that already have a recent shop_redact request
+    (NOT EXISTS) so the monotonically-growing ex-merchant set drains
+    instead of perpetually re-scanning the oldest _BATCH_CAP."""
+    src = (_BACKEND / "app" / "services" / "uninstall_erasure.py").read_text()
+    assert "exists()" in src and "~_recent_redact" in src
+    assert "GdprRequest.request_type == \"shop_redact\"" in src

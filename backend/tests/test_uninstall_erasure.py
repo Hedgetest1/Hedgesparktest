@@ -75,7 +75,17 @@ def test_self_heal_emits_warning_alert(db):
 
 
 def test_dedup_existing_redact_request(db):
-    """If a shop_redact request already exists, don't duplicate."""
+    """If a shop_redact request already exists, don't duplicate.
+
+    Behaviour change 2026-05-18 (the 10k GDPR-Art.17 tail-starvation
+    root fix): the dedup predicate moved from an in-Python loop skip
+    INTO the query as `~_recent_redact` (NOT EXISTS), so an
+    already-redacted merchant is now EXCLUDED FROM THE SCAN entirely
+    rather than scanned-then-skipped. Strictly better — the
+    monotonically-growing ex-merchant set drains instead of
+    perpetually re-scanning the oldest _BATCH_CAP. The contract under
+    test is the actual dedup GUARANTEE (no duplicate request created),
+    asserted mechanism-agnostically."""
     m = _make_uninstalled(db, hours_since=72)
     # Pre-existing redact request (e.g. from Shopify's own webhook)
     db.add(GdprRequest(
@@ -88,7 +98,17 @@ def test_dedup_existing_redact_request(db):
 
     report = run_uninstall_erasure_watchdog(db)
     assert report["self_healed"] == 0
-    assert report["already_redacted"] >= 1
+    # The real invariant: NO duplicate shop_redact request created.
+    redact_count = db.query(GdprRequest).filter(
+        GdprRequest.shop_domain == m.shop_domain,
+        GdprRequest.request_type == "shop_redact",
+    ).count()
+    assert redact_count == 1, (
+        f"dedup violated — expected exactly the 1 pre-existing "
+        f"shop_redact request, found {redact_count}"
+    )
+    # Pre-excluded from the scan (the drain property) — not re-handled.
+    assert report["scanned"] == 0
 
 
 def test_active_shops_ignored(db):

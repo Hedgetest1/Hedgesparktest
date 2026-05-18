@@ -32,6 +32,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import and_, exists
 from sqlalchemy.orm import Session
 
 log = logging.getLogger("uninstall_erasure")
@@ -110,6 +111,40 @@ def run_uninstall_erasure_watchdog(db: Session) -> dict:
     # regardless of operator status — legal Art. 17 right-to-erasure
     # applies uniformly. Including operator/dev shops here is correct.
     cutoff = _now() - timedelta(hours=_GRACE_PERIOD_HOURS)
+    # 10k GDPR-Art.17 tail-starvation fix (2026-05-18, surfaced by the
+    # extended audit_worker_loop_cursor): an uninstalled merchant row
+    # NEVER leaves this WHERE (install_status stays 'uninstalled'
+    # forever; the redact request does not mutate it). The prior
+    # `ORDER BY uninstalled_at ASC LIMIT _BATCH_CAP` with the dedup
+    # done IN PYTHON inside the loop meant: once the oldest _BATCH_CAP
+    # uninstalled rows are all already-redacted, EVERY cycle re-scans
+    # those same 50 (all skipped) and a NEWLY-uninstalled merchant
+    # whose Shopify shop/redact webhook failed — beyond position
+    # _BATCH_CAP in the monotonically-growing ex-merchant set — would
+    # NEVER get its self-healed erasure request → silent Art.17
+    # non-compliance at scale. Root fix (better than a round-robin
+    # cursor — no wasted re-scan): push the dedup predicate INTO the
+    # query as a NOT EXISTS, so the scan returns ONLY merchants that
+    # genuinely still NEED a redact request. The set now truly
+    # self-drains (create request → excluded next cycle → the next
+    # oldest is reached); ordered oldest-first = FIFO erasure fairness.
+    # The in-loop `_has_recent_redact_request` stays as a TOCTOU race
+    # guard (a request created between this query and the iteration).
+    # worker-loop-cursor: ok — self-draining via the ~_recent_redact
+    # NOT EXISTS below: the scan returns ONLY merchants that still need
+    # a shop_redact request, ordered uninstalled_at ASC (FIFO erasure).
+    # Creating the request removes the merchant from the set on the
+    # next cycle, so the next-oldest is always reached — no fixed-
+    # window tail starvation. A round-robin cursor would only add
+    # wasted re-scan of already-redacted rows (§2 r10).
+    dedup_cutoff = _now() - timedelta(days=_DEDUP_LOOKBACK_DAYS)
+    _recent_redact = exists().where(
+        and_(
+            GdprRequest.shop_domain == Merchant.shop_domain,
+            GdprRequest.request_type == "shop_redact",
+            GdprRequest.created_at >= dedup_cutoff,
+        )
+    )
     try:
         rows = (
             db.query(Merchant)
@@ -117,6 +152,7 @@ def run_uninstall_erasure_watchdog(db: Session) -> dict:
                 Merchant.install_status == "uninstalled",
                 Merchant.uninstalled_at.isnot(None),
                 Merchant.uninstalled_at < cutoff,
+                ~_recent_redact,
             )
             .order_by(Merchant.uninstalled_at.asc())
             .limit(_BATCH_CAP)

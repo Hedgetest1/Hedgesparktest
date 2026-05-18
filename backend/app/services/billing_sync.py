@@ -49,17 +49,54 @@ def run_billing_sync(db: Session) -> dict:
     """
     summary = {"checked": 0, "deactivated": 0, "ok": 0, "errors": []}
 
-    # Find Pro merchants with billing_charge_id set
-    merchants = (
-        db.query(Merchant)
-        .filter(
+    # 10k tail-starvation fix (2026-05-18, surfaced by the extended
+    # audit_worker_loop_cursor — a real sibling of the merchant_brain
+    # §11 miss): the prior `.limit(_MAX_PER_CYCLE)` had NO order_by and
+    # NO cross-cycle cursor, so at 10k Pro merchants this 15-min cycle
+    # re-checked the SAME arbitrary _MAX_PER_CYCLE every time → ~all
+    # other Pro merchants NEVER billing-verified → a merchant who
+    # cancelled in Shopify keeps Pro access indefinitely (revenue +
+    # entitlement integrity). Fix = the proven shared round-robin
+    # cursor (mirror merchant_brain.tick_all_active_merchants post-fix
+    # / aggregation_worker / intelligence_worker). At
+    # n <= _MAX_PER_CYCLE (today: N=2 Pro) rr_slice returns the whole
+    # list ⟹ ZERO behaviour change below scale (no 1k refactor).
+    from app.workers._rr_cursor import (
+        load_cursor as _rr_load, save_cursor as _rr_save,
+        rr_slice as _rr_slice, next_cursor as _rr_next,
+    )
+    _BILLING_CURSOR_KEY = "hs:billing_sync:cursor"
+
+    # Cheap deterministic spine: just the sorted shop_domains of every
+    # billable Pro merchant (NOT the ORM rows — loading 10k ORM objects
+    # to slice _MAX_PER_CYCLE would be its own 10k smell).
+    all_domains = sorted(
+        r[0] for r in db.query(Merchant.shop_domain).filter(
             Merchant.plan == "pro",
             Merchant.billing_active == True,
             Merchant.billing_charge_id.isnot(None),
             Merchant.install_status == "active",
-        )
-        .limit(_MAX_PER_CYCLE)
+        ).all()
+    )
+    if not all_domains:
+        return summary
+
+    _cursor = _rr_load(_BILLING_CURSOR_KEY)
+    domain_slice = _rr_slice(all_domains, _cursor, _MAX_PER_CYCLE)
+
+    # Load the full ORM rows for ONLY this cycle's slice (<= _MAX_PER_
+    # CYCLE rows) — _deactivate + token decrypt need the ORM instance.
+    merchants = (
+        db.query(Merchant)
+        .filter(Merchant.shop_domain.in_(domain_slice))
         .all()
+    )
+    # Advance the cursor by what we pulled this cycle (advance-by-
+    # actual-processed; the next cycle resumes after this slice so
+    # every Pro merchant is billing-verified within ⌈N/_MAX⌉ cycles).
+    _rr_save(
+        _BILLING_CURSOR_KEY,
+        _rr_next(_cursor, len(domain_slice), len(all_domains)),
     )
 
     if not merchants:
