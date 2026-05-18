@@ -983,6 +983,18 @@ else
     tail -15 /tmp/preflight_pds.log
 fi
 
+# J4-batch TIER_2 #1: the merchants active-partial-index migration
+# must keep its partial WHERE (selectivity-fragile full index = §12
+# no-op) + CONCURRENTLY-in-autocommit_block (txn = migration fails) +
+# the hot-path predicate it serves (drift = orphaned index).
+step "Merchants active-index contract (audit_merchants_active_index.py)"
+if "$PY" scripts/audit_merchants_active_index.py > /tmp/preflight_mai.log 2>&1; then
+    ok "partial covering index migration + hot-path predicate contract intact"
+else
+    bad "merchants active-partial-index contract regressed — see /tmp/preflight_mai.log"
+    tail -15 /tmp/preflight_mai.log
+fi
+
 # b35b1ac 20s SET LOCAL is request-only BY DESIGN — workers run
 # multi-minute jobs (retention/GDPR) and must NOT inherit it. If a
 # worker imports a request DB dep its long jobs silently die at 20s.

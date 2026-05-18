@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, text
+from sqlalchemy import Boolean, Column, DateTime, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.database import Base
@@ -13,6 +13,22 @@ def _now_utc():
 
 class Merchant(Base):
     __tablename__ = "merchants"
+
+    # Partial covering index — kills the per-cycle Seq Scan on the
+    # `install_status='active'` hot-path scan (aggregation cold-tier /
+    # merchant_brain tick / agent_worker entitlement). Declared in
+    # BOTH model + migration zzzi_merchants_active_partial_idx so
+    # `alembic check` autogenerate stays GREEN post-apply (model
+    # parity — mirrors the zzz3 product_metrics precedent exactly;
+    # a migration-only index is reported as `remove_index` drift and
+    # bricks the preflight alembic-check HARD gate).
+    __table_args__ = (
+        Index(
+            "ix_merchants_active_shop_domain",
+            "shop_domain",
+            postgresql_where=text("install_status = 'active'"),
+        ),
+    )
 
     id             = Column(Integer,  primary_key=True, autoincrement=True)
     shop_domain    = Column(String,   unique=True, nullable=False, index=True)
