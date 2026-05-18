@@ -21,6 +21,8 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import app.core.database as dbmod
 import app.core.ingest_admission as ia
 import app.services.ingest_buffer as ibuf
@@ -33,6 +35,25 @@ from app.api.track import (
 
 _BACKEND = Path(__file__).resolve().parent.parent
 
+# track_event_batch now takes `request` (consent/GPC + per-shop-rate
+# precondition parity with single /track). The gates are patched True
+# by default so the buffer-MECHANISM tests stay focused; the dedicated
+# precondition test below overrides them. `request` is never
+# dereferenced once the gates are patched, so a stub suffices.
+_REQ = MagicMock(name="request")
+
+
+@pytest.fixture(autouse=True)
+def _allow_gates():
+    """Default: consent allowed + shop known + rate ok — so the
+    mechanism tests assert buffering/0-conn, not the gates. The
+    precondition test re-patches these locally (inner patch wins)."""
+    with patch("app.api.track._consent_allows_ingestion", return_value=True), \
+         patch("app.api.track._is_known_shop", return_value=True), \
+         patch("app.api.track._check_per_shop_rate", return_value=True), \
+         patch("app.api.track._bump_consent_metric"):
+        yield
+
 
 def _load_audit():
     spec = importlib.util.spec_from_file_location(
@@ -42,15 +63,16 @@ def _load_audit():
     return m
 
 
-def _payload(event_type: str, vid: str = "v1") -> TrackPayload:
+def _payload(event_type: str, vid: str = "v1",
+             shop: str = "x.myshopify.com") -> TrackPayload:
     return TrackPayload(
-        shop_domain="x.myshopify.com",
+        shop_domain=shop,
         visitor_id=vid,
         event_type=event_type,
-        page_url="https://x.myshopify.com/p",
+        page_url=f"https://{shop}/p",
         utm_source="google",
         click_id="ck123",
-        landing_page="https://x.myshopify.com/land",
+        landing_page=f"https://{shop}/land",
     )
 
 
@@ -83,7 +105,7 @@ def test_all_non_purchase_batch_holds_zero_db_connections():
          patch("app.api.track._store_shopify_y_mapping"), \
          patch("app.api.track._bump_heatmap_bucket"):
         holder = dbmod._LazyDbSession()
-        resp = track_event_batch(pl, db=holder)
+        resp = track_event_batch(_REQ, pl, db=holder)
         SL.assert_not_called()            # ← 0 pooled connections
         assert enq.call_count == 3        # every item buffered
     assert b'"accepted":3' in bytes(resp.body)
@@ -105,7 +127,7 @@ def test_mixed_batch_buffers_non_purchase_and_syncs_purchase():
          patch("app.api.track._upsert_visitor") as upv, \
          patch("app.api.track._persist_purchase") as pp:
         holder = dbmod._LazyDbSession()
-        resp = track_event_batch(pl, db=holder)
+        resp = track_event_batch(_REQ, pl, db=holder)
         assert enq.call_count == 2        # the 2 non-purchase items
         upv.assert_called_once()          # purchase visitor upsert
         pp.assert_called_once()           # purchase persisted
@@ -135,7 +157,7 @@ def test_purchase_commit_integrityerror_keeps_buffered_accepted():
          patch("app.api.track._upsert_visitor"), \
          patch("app.api.track._persist_purchase"):
         holder = dbmod._LazyDbSession()
-        resp = track_event_batch(pl, db=holder)
+        resp = track_event_batch(_REQ, pl, db=holder)
         assert enq.call_count == 2          # both non-purchase buffered
         fake.commit.assert_called_once()    # purchase commit attempted
         fake.rollback.assert_called_once()  # … and rolled back
@@ -159,13 +181,46 @@ def test_batch_click_feeds_the_spatial_heatmap():
          patch("app.api.track._store_shopify_y_mapping"), \
          patch("app.api.track._bump_heatmap_bucket") as hm:
         holder = dbmod._LazyDbSession()
-        track_event_batch(pl, db=holder)
+        track_event_batch(_REQ, pl, db=holder)
         SL.assert_not_called()                 # still 0-conn
         assert hm.call_count == 2              # both non-purchase items
         kw = hm.call_args_list[0].kwargs
         assert kw["event_type"] == "click"
         assert kw["shop_domain"] == "x.myshopify.com"
         assert "x_pct" in kw and "y_pct" in kw  # coords forwarded
+
+
+def test_batch_drops_consent_denied_and_unknown_shop(monkeypatch):
+    """Precondition parity (the bug the independent audit caught): an
+    un-consented item AND an item for an unknown shop must be DROPPED
+    (rejected++, never buffered/heatmap-captured), exactly like single
+    /track. Only the fully-eligible item is accepted."""
+    pl = BatchTrackPayload(events=[
+        _payload("click", "v1", shop="okk.myshopify.com"),      # accepted
+        _payload("click", "v2", shop="denied.myshopify.com"),   # consent→drop
+        _payload("click", "v3", shop="unknown.myshopify.com"),  # unknown→drop
+    ])
+
+    with patch.object(dbmod, "SessionLocal") as SL, \
+         patch.object(ia, "ingest_admit", return_value="tok"), \
+         patch.object(ia, "ingest_release"), \
+         patch.object(ibuf, "enqueue_event", return_value=True) as enq, \
+         patch("app.api.track._store_shopify_y_mapping"), \
+         patch("app.api.track._bump_heatmap_bucket") as hm, \
+         patch("app.api.track._bump_consent_metric"), \
+         patch("app.api.track._consent_allows_ingestion",
+               side_effect=lambda item, request=None:
+               item.shop_domain != "denied.myshopify.com"), \
+         patch("app.api.track._is_known_shop",
+               side_effect=lambda db, shop: shop != "unknown.myshopify.com"), \
+         patch("app.api.track._check_per_shop_rate", return_value=True):
+        resp = track_event_batch(_REQ, pl, db=dbmod._LazyDbSession())
+        SL.assert_not_called()              # all non-purchase → 0-conn
+        assert enq.call_count == 1          # only the eligible item
+        assert hm.call_count == 1           # un-consented NOT captured
+    body = bytes(resp.body)
+    assert b'"accepted":1' in body
+    assert b'"rejected":2' in body
 
 
 def test_audit_track_batch_buffered_is_non_vacuous(tmp_path):
@@ -181,8 +236,12 @@ def test_audit_track_batch_buffered_is_non_vacuous(tmp_path):
     )
     fixed = (
         "@router.post('/track/batch')\n"
-        "def track_event_batch(payload, db):\n"
+        "def track_event_batch(request, payload, db):\n"
         "    for item in payload.events:\n"
+        "        if not _consent_allows_ingestion(item, request=request):\n"
+        "            continue\n"
+        "        if not _is_known_shop(db, item.shop_domain):\n"
+        "            continue\n"
         "        if item.event_type != 'purchase':\n"
         "            enqueue_event(_event_fields_from_payload(item))\n"
         "            _bump_heatmap_bucket(shop_domain=item.shop_domain)\n"

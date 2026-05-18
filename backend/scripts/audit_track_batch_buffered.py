@@ -24,6 +24,15 @@ Two contracts on app/api/track.py, both born 2026-05-18:
       attribution-loss drift). One field source ⟹ a column add is one
       edit and can never diverge per-handler again.
 
+  (D) track_event_batch MUST call `_consent_allows_ingestion` AND
+      `_is_known_shop` — PRECONDITION parity with single /track. An
+      independent adversarial audit (2026-05-18) found the batch
+      buffered+heatmap-captured events even when the visitor DENIED
+      consent / sent GPC (GDPR Art. 6/7 + CCPA/CPRA defect), because
+      "parity" had been defined as the buffer MECHANISM only. Parity
+      means the gates too — a green suite must not hide an
+      un-consented ingest path.
+
   (C) track_event_batch MUST call `_bump_heatmap_bucket` — full
       side-effect parity with single /track's non-purchase branch.
       spark-tracker.js sends click + mousemove (the ONLY events the
@@ -83,6 +92,24 @@ def main() -> int:
             "sync-INSERT and pool-cascade at 10k (honest-residual #7 "
             "regressed). Route non-purchase via the ingest buffer."
         )
+
+    # ---- (D) batch must enforce the consent + known-shop gates -----
+    if batch_fn is not None:
+        for _gate, _why in (
+            ("_consent_allows_ingestion",
+             "un-consented events (GDPR Art. 6/7 / CCPA-CPRA GPC) "
+             "would be buffered + heatmap-captured"),
+            ("_is_known_shop",
+             "forged events for never-installed shops would be "
+             "buffered (anti-abuse bypass)"),
+        ):
+            if not _calls(batch_fn, _gate):
+                violations.append(
+                    f"  app/api/track.py:{batch_fn.lineno} "
+                    f"{_BATCH_FUNC}() does not call {_gate} — "
+                    f"{_why}. Precondition parity with single /track "
+                    "is mandatory (parity ≠ buffer mechanism only)."
+                )
 
     # ---- (C) batch must bump the heatmap (side-effect parity) ------
     if batch_fn is not None and not _calls(batch_fn, "_bump_heatmap_bucket"):

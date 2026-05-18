@@ -966,7 +966,7 @@ class BatchTrackPayload(BaseModel):
 
 
 @router.post("/track/batch")
-def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_lazy_db)):
+def track_event_batch(request: Request, payload: BatchTrackPayload, db: Session = Depends(get_lazy_db)):
     """
     Ingest a batch of storefront events in a single transaction.
 
@@ -1011,6 +1011,35 @@ def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_lazy
                 rejected += 1
                 continue
             if item.event_type not in _ALLOWED_EVENT_TYPES:
+                rejected += 1
+                continue
+
+            # ── PRECONDITION PARITY with single /track (GDPR Art. 6/7
+            # + CCPA/CPRA GPC/DNT, known-shop anti-abuse, per-shop
+            # rate-limit). The pre-2026-05-18 batch gated ONLY on
+            # shop-domain-format + event-type, so spark-tracker.js's
+            # batched click/mousemove/add_to_cart/begin_checkout were
+            # buffered + heatmap-captured even when the visitor DENIED
+            # consent or sent Global Privacy Control — a real GDPR/CCPA
+            # defect the #7/#6/heatmap commits widened (independent
+            # adversarial audit, 2026-05-18). "Parity" must mean the
+            # PRECONDITIONS too, not just the buffer mechanism. Batch
+            # semantics = skip the offending item (rejected++, continue)
+            # — never abort the whole batch, never 4xx (mirrors single
+            # /track's silent consent drop + the batch's existing
+            # skip-invalid contract). _is_known_shop on a cache hit is
+            # Redis-only (0-conn property preserved on the steady-state
+            # buffered path); a cache miss opens the lazy session,
+            # identical to single /track's documented cold path.
+            if not _consent_allows_ingestion(item, request=request):
+                _bump_consent_metric(accepted=False)
+                rejected += 1
+                continue
+            _bump_consent_metric(accepted=True)
+            if not _is_known_shop(db, item.shop_domain):
+                rejected += 1
+                continue
+            if not _check_per_shop_rate(request, item.shop_domain):
                 rejected += 1
                 continue
 

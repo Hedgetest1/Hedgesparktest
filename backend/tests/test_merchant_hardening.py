@@ -61,7 +61,16 @@ def test_track_batch_isolates_bad_row(db, client):
             },
         ],
     }
-    res = client.post("/track/batch", json=batch)
+    # This test pins BAD-ROW ISOLATION, orthogonal to the
+    # consent/known-shop/per-shop-rate preconditions added 2026-05-18
+    # (precondition parity with single /track — independent audit).
+    # Mock the 3 gates True so the test exercises its real contract,
+    # not the gate; registering a Merchant would pollute the shared
+    # `hs:known_shop` Redis cache (300s TTL, not SAVEPOINT-rolled).
+    with patch("app.api.track._consent_allows_ingestion", return_value=True), \
+         patch("app.api.track._is_known_shop", return_value=True), \
+         patch("app.api.track._check_per_shop_rate", return_value=True):
+        res = client.post("/track/batch", json=batch)
     assert res.status_code in (200, 201)
     body = res.json()
     # Good rows persisted, bad row rejected
