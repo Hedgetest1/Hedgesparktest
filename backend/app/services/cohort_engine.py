@@ -39,6 +39,7 @@ def get_cohort_retention(
     db: Session,
     shop_domain: str,
     weeks: int = 12,
+    now: datetime | None = None,
 ) -> dict:
     """
     Compute weekly cohort retention matrix.
@@ -68,7 +69,13 @@ def get_cohort_retention(
         }
     """
     weeks = max(4, min(weeks, 26))
-    since_date = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(weeks=weeks + 1)
+    # Injectable clock — the single "now" for the window, the
+    # measurable-weeks cap, and generated_at. Defaults to wall-clock;
+    # tests pass a fixed value so cohort math is DETERMINISTIC (the
+    # prior reliance on datetime.now() made the retention test a
+    # 1-in-7 weekday time bomb — see test_cohort_engine_composer).
+    _now = (now or datetime.now(timezone.utc)).replace(tzinfo=None)
+    since_date = _now - timedelta(weeks=weeks + 1)
 
     try:
         # Step 1: Get all orders with customer email in the window
@@ -131,7 +138,6 @@ def get_cohort_retention(
         cohort_customers[week_key].append(email)
 
     # Step 4: Build retention matrix per cohort
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
     cohorts = []
 
     for week_key, emails in sorted(cohort_customers.items(), reverse=True):
@@ -147,27 +153,49 @@ def get_cohort_retention(
             for _, p in customer_orders.get(email, [])
         )
 
-        # Compute retention per subsequent week
+        # Compute retention per subsequent week.
+        #
+        # STRUCTURAL anchor = each customer's OWN first order, NOT the
+        # cohort Monday. week_w counts a customer who placed any order
+        # in [first + w*7d, first + (w+1)*7d) for w >= 1, where
+        # w = (order_date - customer_first_order).days // 7.
+        #
+        # Why (the bug this replaces, 2026-05-18, independent audit +
+        # the long-carried R-blocker, both vindicated): the prior code
+        # measured every customer's repeats relative to the shared
+        # `cohort_start` (the cohort's ISO-Monday). That carried the
+        # customer's first-purchase WEEKDAY into the bucket offset, so
+        # two customers with IDENTICAL repeat latency landed in
+        # DIFFERENT retention weeks purely by which weekday they were
+        # acquired (an 8-day-later repeat fell in week_1 or week_2 by
+        # first-purchase weekday) — weekday-noisy, non-comparable
+        # cross-cohort numbers shown to Lite merchants + the weekly
+        # digest + Ask-HS. It also layered a redundant/off-by-one guard
+        # (`o > cohort_start + 1wk`) that shifted week_1's lower edge.
+        # Per-customer elapsed-week math removes the weekday term
+        # entirely AND drops the guard (one bucket assignment, no
+        # second lower bound). w==0 (a same-week repeat, days 0-6) is,
+        # by the week-OVER-week retention definition, intentionally NOT
+        # part of the subsequent-weeks curve (a distinct "same-week
+        # repeat" metric, out of scope here — documented, no week_0
+        # column = no API/UI change). The cohort Monday is retained
+        # ONLY as the grouping LABEL (cohort_week / cohort_start),
+        # which is correct and unchanged.
         retention = {}
         max_measurable_weeks = min(
             weeks,
-            max(1, int((now - cohort_start).days // 7)),
+            max(1, int((_now - cohort_start).days // 7)),
         )
 
         for w in range(1, max_measurable_weeks + 1):
-            week_start = cohort_start + timedelta(weeks=w)
-            week_end   = week_start + timedelta(weeks=1)
-
             repurchasers = 0
             for email in emails:
-                orders = customer_orders.get(email, [])
-                # Count as retained if they purchased AFTER cohort week in this week
-                had_repeat = any(
-                    week_start <= o[0] < week_end
-                    for o in orders
-                    if o[0] > cohort_start + timedelta(weeks=1)
-                )
-                if had_repeat:
+                first = customer_first_purchase[email]
+                if any(
+                    ((o[0] - first).days // 7) == w
+                    for o in customer_orders.get(email, [])
+                    if o[0] > first
+                ):
                     repurchasers += 1
 
             retention[f"week_{w}"] = round(repurchasers / cohort_size, 4)

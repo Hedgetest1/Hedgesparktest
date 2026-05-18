@@ -57,6 +57,15 @@ def _monday(year: int, week: int) -> datetime:
     return datetime.strptime(f"{year}-W{week:02d}-1", "%Y-W%W-%w")
 
 
+# Fixed injected clock for the deterministic retention tests.
+# 2026-05-20 is a WEDNESDAY (weekday()==2) — deliberately NOT a Monday
+# so a regression to cohort-Monday-anchored math cannot hide behind a
+# Monday-only green suite (the exact way the pre-fix flaky test slipped
+# through every non-Sunday day).
+_NOW = datetime(2026, 5, 20, 12, 0, 0)
+assert _NOW.weekday() == 2  # guard: must stay a non-Monday weekday
+
+
 # ---------------------------------------------------------------------------
 # Empty state
 # ---------------------------------------------------------------------------
@@ -220,23 +229,23 @@ class TestSummary:
         assert "total_customers" in out
 
     def test_best_cohort_picked_by_week4_or_week1_max(self):
-        """Build 2 cohorts: cohort A has retention[week_1]=0, B has
-        retention[week_1]=1. best_cohort MUST be B's week."""
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
-        # Cohort A: 2 customers in W-6, no repeats
+        """Build 2 cohorts: A has week_1=0, B has week_1=1 →
+        best_cohort MUST be B's week. DETERMINISTIC: a FIXED non-Monday
+        `now` is injected (was relative to datetime.now() → a 1-in-7
+        weekday time bomb; the bug it accidentally detected is fixed +
+        pinned by test_retention_weekday_invariant below)."""
+        now = _NOW  # Wed 2026-05-20 12:00 — deliberately NOT a Monday
         cohort_a_start = now - timedelta(weeks=6)
-        # Cohort B: 1 customer in W-5 with a repeat 1 week later
         cohort_b_start = now - timedelta(weeks=5)
         rows = [
             ("a1@x.com", cohort_a_start, 50.0),
             ("a2@x.com", cohort_a_start + timedelta(days=1), 50.0),
             ("b1@x.com", cohort_b_start, 50.0),
-            ("b1@x.com", cohort_b_start + timedelta(weeks=1, days=1), 30.0),
+            ("b1@x.com", cohort_b_start + timedelta(days=8), 30.0),  # elapsed wk1
         ]
-        out = get_cohort_retention(_FakeDB(rows), "x.myshopify.com", weeks=12)
-        # B has 100% week_1 retention vs A's 0% → best_cohort is B's week
+        out = get_cohort_retention(_FakeDB(rows), "x.myshopify.com",
+                                   weeks=12, now=now)
         assert out["best_cohort"] is not None
-        # Find the cohort with retention[week_1] >= 1.0 — that's B
         b_week = None
         for c in out["cohorts"]:
             if c["retention"].get("week_1", 0) >= 1.0:
@@ -244,6 +253,59 @@ class TestSummary:
                 break
         assert b_week is not None
         assert out["best_cohort"] == b_week
+
+    def test_retention_weekday_invariant(self):
+        """STRUCTURAL PREVENTER (non-vacuous — fails on the pre-fix
+        cohort-Monday-anchored code, passes only on the per-customer
+        elapsed-week anchor). The SAME repeat latency (first + 8 days
+        ⟹ elapsed week 1) MUST yield IDENTICAL week_1 retention no
+        matter which weekday the customer was acquired. Pre-fix the
+        cohort-Monday anchor carried the first-purchase weekday into
+        the bucket, so week_1 flipped 1.0↔0.0 across weekdays — the
+        exact merchant-facing false-number bug + the test time bomb."""
+        base = _NOW - timedelta(weeks=5)            # ~5 weeks before now
+        week1_values = []
+        for d in range(7):                          # Mon … Sun offsets
+            first = base + timedelta(days=d)
+            rows = [
+                ("c@x.com", first, 50.0),
+                ("c@x.com", first + timedelta(days=8), 30.0),  # always wk1
+            ]
+            out = get_cohort_retention(_FakeDB(rows), "x.myshopify.com",
+                                       weeks=12, now=_NOW)
+            wk1 = out["cohorts"][0]["retention"].get("week_1", 0.0)
+            week1_values.append(wk1)
+        assert week1_values == [1.0] * 7, (
+            f"weekday-noise NOT eliminated: week_1 by weekday "
+            f"offset 0..6 = {week1_values} (must all be 1.0)"
+        )
+
+    def test_retention_matrix_golden(self):
+        """Golden-output pin: an exact retention matrix for a known
+        elapsed-week fixture, fixed `now`. Any future UNINTENDED number
+        move (the whole point of the structural fix is intended-only
+        changes) trips this. week_w = (repeat - first).days // 7."""
+        first = _NOW - timedelta(weeks=10)          # 1 customer cohort
+        rows = [
+            ("g@x.com", first, 40.0),
+            ("g@x.com", first + timedelta(days=8),  25.0),  # elapsed wk1
+            ("g@x.com", first + timedelta(days=22), 15.0),  # elapsed wk3
+            ("g@x.com", first + timedelta(days=3),  99.0),  # wk0 same-week → excluded
+        ]
+        out = get_cohort_retention(_FakeDB(rows), "x.myshopify.com",
+                                   weeks=12, now=_NOW)
+        c = out["cohorts"][0]
+        ret = c["retention"]
+        assert ret.get("week_1") == 1.0
+        assert ret.get("week_3") == 1.0
+        assert ret.get("week_2") == 0.0
+        assert ret.get("week_4") == 0.0
+        # week_0 (the +3d same-week repeat) is intentionally NOT a
+        # subsequent-weeks bucket — no week_0 key by definition.
+        assert "week_0" not in ret
+        assert c["revenue_total"] == 179.0          # 40+25+15+99
+        assert out["avg_week_1_retention"] == 1.0
+        assert out["best_cohort"] == c["cohort_week"]
 
 
 # ---------------------------------------------------------------------------
