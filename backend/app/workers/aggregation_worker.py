@@ -1084,6 +1084,23 @@ def _run_cycle_inner() -> None:
         except Exception as exc:
             log(f"proactive precompute error (non-fatal): {exc}")
 
+        # ── J2 (jewel-structure 2026-05-18): publish the HOT set this
+        # heavy cycle just computed so the DECOUPLED fast prewarm loop
+        # (_dashboard_prewarm_loop, period ≪ TTL_DASHBOARD) keeps these
+        # dashboards CONTINUOUSLY warm — closing the 10k cold-cliff
+        # WITHOUT coupling prewarm to the slow heavy period
+        # (run_cycle + sleep(300) ≈ 350-600s > 360s TTL, the structural
+        # reason the in-cycle prewarm-first pass alone could not — see
+        # independent Agent a1639e5). Reuses the already-computed
+        # signal: ZERO new query. 900s TTL spans ~2-3 heavy cycles so
+        # a slow/skipped cycle still leaves the loop a recent HOT list;
+        # worker fully down ⟹ key expires ⟹ loop no-ops (safe degrade).
+        try:
+            from app.core.redis_client import cache_set as _cs_hot
+            _cs_hot("hs:agg:hot_shops", sorted(shops_processed_set), 900)
+        except Exception as exc:
+            log(f"hot-shops publish error (non-fatal): {exc}")
+
         # Always update last_run_at on successful cycle completion,
         # even when rows_written == 0 (no new events to process).
         # This is the liveness signal that /system/health reads —
@@ -1166,6 +1183,98 @@ def _ingest_drain_loop() -> None:
             _t.sleep(_IDLE)
 
 
+# MUST stay < TTL_DASHBOARD (redis_client) or the decoupled loop
+# cannot keep HOT continuously warm (the period<TTL invariant — the
+# false premise the independent Agent caught on the J1 attempt). The
+# J2 test binds THIS literal, not a copy.
+_DASHBOARD_PREWARM_PERIOD_DEFAULT = 120
+_DASHBOARD_PREWARM_CURSOR_KEY = "hs:dash_prewarm:cursor"
+
+
+def _prewarm_cycle_once() -> int:
+    """One decoupled-prewarm iteration: read the HOT set the heavy
+    cycle published, prewarm a ROUND-ROBIN-cursor slice of it (cheap
+    warm-skip dominated; `prewarm_lite_dashboard` rebuilds only on TTL
+    expiry, now SETNX-stampede-shared). Isolated for deterministic
+    testing. Returns the number of shops attempted (0 if no HOT list
+    — heavy cycle not run yet / Redis down ⟹ safe no-op; the shipped
+    stampede-guard+sticky covers any cold view).
+
+    The cursor (advance by ACTUALLY-processed, so a budget break
+    mid-slice RESUMES next pass) is what makes this FAIR: every HOT
+    shop is reached within ⌈HOT/throughput⌉ passes — NO permanent
+    lexicographic-tail starvation (the J1/J2 relocation defect the
+    independent Agent a37dc4c caught: the cursorless version restarted
+    from sorted(hot)[0] every pass and starved the tail forever at
+    HOT>~1500). Reuses the EXACT proven in-file `_rr_cursor` pattern
+    the COLD aggregation tier uses (§2 r1)."""
+    from app.core.redis_client import cache_get
+    from app.workers._rr_cursor import (
+        load_cursor as _rr_load,
+        save_cursor as _rr_save,
+        rr_slice as _rr_slice,
+        next_cursor as _rr_next,
+    )
+    hot = cache_get("hs:agg:hot_shops")
+    if not hot:
+        return 0
+    shops = sorted(hot)
+    budget = int(os.getenv("DASHBOARD_PREWARM_BUDGET_S", "100"))
+    # max-per-pass MUST be < realistic HOT or rr_slice returns the
+    # WHOLE list (cursor inert ⟹ _prewarm_hot_tier front-loads ⟹ the
+    # tail-starvation the Agent caught is NOT fixed). 1000 ⟹ at the
+    # Agent's HOT≈2000 the cursor rotates a 1000-slice/pass ⟹ every
+    # HOT shop reached within ⌈HOT/1000⌉ passes; at period 120s that
+    # is ⌈HOT/1000⌉×120s, < TTL_DASHBOARD 360s for HOT ≤ ~2000
+    # (continuously warm) and gracefully bounded-fair (NOT permanently
+    # starved) above. A 1000-slice fits the 100s budget (warm-skips
+    # ~1ms + ~⅓ expired×~200ms ≈ 67s). This arithmetic is GATED on
+    # independent-Agent re-verification (a37dc4c) — not self-asserted.
+    _max = int(os.getenv("DASHBOARD_PREWARM_MAX_PER_PASS", "1000"))
+    cur = _rr_load(_DASHBOARD_PREWARM_CURSOR_KEY)
+    sl = _rr_slice(shops, cur, _max)
+    done = _prewarm_hot_tier(sl, budget)
+    _rr_save(_DASHBOARD_PREWARM_CURSOR_KEY,
+             _rr_next(cur, done, len(shops)))
+    return done
+
+
+def _dashboard_prewarm_loop() -> None:
+    """J2 jewel (2026-05-18): a DECOUPLED daemon thread keeping the
+    HOT-tier dashboard cache continuously warm at a SHORT period
+    (DASHBOARD_PREWARM_PERIOD_S default 120s) ≪ TTL_DASHBOARD (360s).
+
+    Why decoupled (independent Agent a1639e5): prewarm inside the
+    5-min heavy cycle has period = run_cycle + sleep(300) ≈ 350-600s
+    > TTL 360s ⟹ the cache expires before re-prewarm at 10k ⟹ the
+    shipped in-cycle prewarm-first pass is a SAFE improvement but
+    cannot CLOSE the cold-cliff. Running prewarm on its OWN fast loop
+    makes `period < TTL` TRUE BY CONSTRUCTION (120 < 360) — the exact
+    false premise the Agent caught, now structurally fixed: a HOT
+    shop re-touched every 120s under a 360s TTL is continuously
+    cached (cheap warm-skip the ~2 loops between expiries, ONE
+    bounded ~18-query rebuild on expiry, stampede-guarded) ⟹ the
+    dashboard is warm except a sub-2s guarded rebuild window every
+    ~TTL — NOT a cliff. Heavy ~10-sub-op intelligence stays on the
+    5-min cycle (7-30d windows tolerate it). No staleness regression
+    (refresh ≤ the heavy period anyway), no unilateral DB-load knob,
+    no new PM2 process / no TIER_2 (daemon thread in the singleton,
+    the proven _ingest_drain_loop pattern). Never dies: every
+    exception caught + retried."""
+    import time as _t
+    _period = int(os.getenv("DASHBOARD_PREWARM_PERIOD_S",
+                            str(_DASHBOARD_PREWARM_PERIOD_DEFAULT)))
+    log("dashboard-prewarm loop started")
+    while True:
+        try:
+            n = _prewarm_cycle_once()
+            if n > 0:
+                log(f"dashboard-prewarm: touched {n} hot shop(s)")
+        except Exception as exc:
+            log(f"dashboard-prewarm loop error (non-fatal, retrying): {exc}")
+        _t.sleep(_period)
+
+
 def main() -> None:
     log("worker started")
 
@@ -1182,6 +1291,15 @@ def main() -> None:
             target=_ingest_drain_loop, name=f"ingest-drain-{_i}", daemon=True
         ).start()
     log(f"ingest-drain: {_drain_n} parallel drainer thread(s) started")
+
+    # J2: decoupled fast dashboard-prewarm loop (period ≪ TTL_DASHBOARD
+    # ⟹ HOT dashboards stay continuously warm, the structural cold-cliff
+    # closure the slow heavy-cycle prewarm could not give). Same proven
+    # daemon-thread-in-singleton pattern; no new PM2 process / no TIER_2.
+    _threading.Thread(
+        target=_dashboard_prewarm_loop, name="dashboard-prewarm", daemon=True
+    ).start()
+    log("dashboard-prewarm: decoupled thread started")
 
     while True:
         from app.core.distributed_lock import worker_lock, extend_lock

@@ -1222,16 +1222,36 @@ def _serve_dashboard_with_stampede_guard(
 
 
 def prewarm_lite_dashboard(db: Session, shop: str) -> bool:
-    """Worker entry point: build dashboard payload + write cache only
-    if not already warm. Returns True if a build happened, False if
-    the cache was already populated. Best-effort — never raises."""
-    from app.core.redis_client import cache_get, KEY_DASHBOARD
+    """Worker entry point: build + cache the dashboard payload iff not
+    already warm. Returns True if a build happened, False if warm OR
+    another builder is already on this shop. Best-effort — never
+    raises.
+
+    Stampede-shared (independent Agent a37dc4c, 2026-05-18): this
+    acquires the SAME per-shop SETNX lock `_serve_dashboard_with_
+    stampede_guard` uses, so the decoupled prewarm loop + the heavy
+    cycle's prewarm passes + a concurrent HTTP cold request can NEVER
+    each run the ~18-query build for the same shop at once (the herd
+    the bare-build version allowed). Lost the lock ⟹ another builder
+    owns it ⟹ skip (return False) — correct for a best-effort
+    background prewarm. Lock self-expires (TTL 30s) + explicit
+    release; degrade-open if Redis down (same contract as the HTTP
+    path)."""
+    from app.core.redis_client import (
+        cache_get, KEY_DASHBOARD, KEY_DASHBOARD_LOCK,
+    )
     cache_key = KEY_DASHBOARD.format(shop=shop) + ":lite"
+    lock_key = KEY_DASHBOARD_LOCK.format(shop=shop) + ":lite"
     try:
         if cache_get(cache_key) is not None:
             return False  # already warm
-        build_lite_dashboard_overview(db, shop)
-        return True
+        if not _acquire_dashboard_lock(lock_key):
+            return False  # another builder owns this shop — no herd
+        try:
+            build_lite_dashboard_overview(db, shop)
+            return True
+        finally:
+            _release_dashboard_lock(lock_key)
     except Exception as exc:
         log.warning("dashboard: prewarm_lite_dashboard failed for %s: %s", shop, exc)
         return False
