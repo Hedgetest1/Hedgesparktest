@@ -187,6 +187,14 @@ def find_table_references(sql: str) -> set[str]:
         name = raw.lower()
         if name in _SKIP_TABLES:
             continue
+        # PostgreSQL RESERVES the `pg_` prefix exclusively for system
+        # catalogs (documented: a user table may not begin with `pg_`).
+        # Any `pg_*` token (pg_inherits, pg_class, pg_get_expr-FROM
+        # misreads, …) is therefore a real catalog, never a ghost — and
+        # this generalises to all future catalog-querying code (J4/J5
+        # partition introspection) instead of enumerating each by hand.
+        if name.startswith("pg_"):
+            continue
         if name in ctes:
             continue
         seen.add(name)

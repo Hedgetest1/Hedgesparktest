@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -28,6 +29,23 @@ from sqlalchemy import text
 _log = logging.getLogger("worker.aggregation.retention")
 
 RETENTION_DAYS = 90
+# J4-part-1 (jewel-structure, 2026-05-18, design-led + verified by an
+# independent Agent): fully-aged WHOLE monthly `events` partitions are
+# DROPPED (instant metadata op, zero dead tuples / vacuum pressure)
+# instead of row-by-row DELETEd. The straddle partition + events_default
+# still go through the unchanged batched row-DELETE (a complete
+# superset fallback ⟹ correctness holds even if the drop phase is
+# skipped). Bound format observed on PG 15.17: FOR VALUES
+# FROM ('<int-ms>') TO ('<int-ms>'); partition key = RANGE("timestamp")
+# (bigint epoch-ms), half-open [a,b). DROP-safe iff b <= cutoff (every
+# row the child can hold has timestamp < b <= cutoff ⟹ already past
+# retention; an in-window row cannot route into such a child). Circuit
+# breaker caps drops/run so a clock-skew/pathological cutoff cannot
+# nuke many months. events_default + unparseable bounds NEVER match.
+_RETENTION_MAX_PARTITION_DROPS = int(
+    os.getenv("RETENTION_MAX_PARTITION_DROPS", "12"))
+_PARTITION_BOUND_RE = re.compile(r"FROM \('(-?\d+)'\) TO \('(-?\d+)'\)")
+_PARTITION_NAME_RE = re.compile(r"\Aevents_y\d{4}m\d{2}\Z")
 NUDGE_EVENT_RETENTION_DAYS = 60
 WORKER_LOG_RETENTION_DAYS = 30
 # Sentry incident table is pipeline-driven; resolved incidents older
@@ -147,6 +165,105 @@ def get_distinct_shops(conn) -> list[str]:
     return [row.shop_domain for row in result.fetchall()]
 
 
+def _enumerate_partition_bounds(conn) -> list[tuple[str, int]]:
+    """(child_name, upper_bound_ms) for every PARSEABLE non-DEFAULT
+    range child of `events`. DEFAULT (catch-all) and any bound not
+    matching the observed PG-15 format are EXCLUDED — fail-safe ⟹
+    their aged rows are reclaimed by the unchanged row-DELETE."""
+    rows = conn.execute(text(
+        "SELECT c.relname AS name, "
+        "pg_get_expr(c.relpartbound, c.oid) AS bound "
+        "FROM pg_inherits i "
+        "JOIN pg_class c ON c.oid = i.inhrelid "
+        "JOIN pg_class p ON p.oid = i.inhparent "
+        "WHERE p.relname = 'events' AND c.relkind = 'r'"
+    )).fetchall()
+    out: list[tuple[str, int]] = []
+    for r in rows:
+        b = r.bound or ""
+        if b == "DEFAULT":
+            continue  # never drop the catch-all
+        m = _PARTITION_BOUND_RE.search(b)
+        if not m:
+            continue  # unparseable ⟹ fail-safe: row-DELETE handles it
+        out.append((r.name, int(m.group(2))))  # group(2) = upper bound
+    return out
+
+
+def _detach_then_drop(name: str) -> None:
+    """Lock-minimal drop of ONE fully-aged child. `DROP TABLE` on an
+    attached child AccessExclusive-locks the PARENT `events` (stalls
+    all 10k ingest) — REJECTED. Correct (PG 14+, verified 15.17):
+    `DETACH PARTITION ... CONCURRENTLY` takes only
+    ShareUpdateExclusive on the parent (does NOT block INSERT/SELECT),
+    then `DROP TABLE` the now-standalone child (locks only itself).
+    DETACH CONCURRENTLY cannot run in a txn block ⟹ autocommit raw
+    conn. Idempotent: a crash between detach and drop leaves a
+    standalone table ⟹ next run's DETACH raises 'is not a partition'
+    (tolerated) ⟹ DROP IF EXISTS reaps it. Strict name fullmatch =
+    defence-in-depth (name is already a filtered pg_class.relname —
+    no injection surface)."""
+    if not _PARTITION_NAME_RE.match(name):
+        raise ValueError(f"refusing DDL on non-events-partition: {name!r}")
+    from app.core.database import engine
+    raw = engine.raw_connection()
+    try:
+        # DETACH CONCURRENTLY forbids a txn block. `raw` is a
+        # SQLAlchemy _ConnectionFairy: setting autocommit on the fairy
+        # itself is silent attribute-shadowing (no descriptor; never
+        # reaches psycopg2) ⟹ DETACH would raise ActiveSqlTransaction
+        # and J4 would be silently dead. It MUST be set on the real
+        # DBAPI connection via .driver_connection (independent Agent
+        # a28854e empirically verified this form makes the
+        # same-constraint DDL succeed).
+        raw.driver_connection.autocommit = True
+        cur = raw.cursor()
+        try:
+            cur.execute(
+                f'ALTER TABLE events DETACH PARTITION "{name}" CONCURRENTLY')
+        except Exception as exc:
+            if "not a partition" not in str(exc).lower():
+                raise  # a real failure — surface (caller fail-safes)
+        cur.execute(f'DROP TABLE IF EXISTS "{name}"')
+    finally:
+        raw.close()
+
+
+def _drop_fully_aged_event_partitions(conn, cutoff_ms: int) -> int:
+    """DROP every WHOLE `events` child whose entire range is < the
+    retention cutoff. Double clock guard: a forward-skewed APP clock
+    cannot widen the drop set past what the DB's OWN now() agrees is
+    aged. Circuit-breaker capped. FULLY fail-safe — ANY error logs +
+    returns 0; the unchanged batched row-DELETE that runs AFTER this
+    is a complete superset fallback (cleans straddle + events_default
+    + anything this skipped). Returns #partitions dropped."""
+    try:
+        db_now_ms = int(conn.execute(text(
+            "SELECT (extract(epoch from now())*1000)::bigint")).scalar())
+        guard_ms = db_now_ms - (RETENTION_DAYS * 86_400_000) - 86_400_000
+        effective = min(cutoff_ms, guard_ms)  # app-clock-skew guard
+        droppable = sorted(
+            n for (n, hi) in _enumerate_partition_bounds(conn)
+            if hi <= effective)
+        dropped = 0
+        for name in droppable[:_RETENTION_MAX_PARTITION_DROPS]:
+            _detach_then_drop(name)
+            dropped += 1
+            _log.info("retention[events]: dropped fully-aged partition "
+                      "%s (upper bound <= %d)", name, effective)
+        if len(droppable) > _RETENTION_MAX_PARTITION_DROPS:
+            _log.warning(
+                "retention[events]: %d droppable but breaker cap %d — "
+                "remainder next run", len(droppable),
+                _RETENTION_MAX_PARTITION_DROPS)
+        return dropped
+    except Exception:
+        _log.exception(
+            "retention[events]: partition-drop phase failed; the "
+            "batched row-DELETE fallback still reclaims all aged rows")
+        return 0
+
+
 def run_event_retention(conn, now_ms: int) -> int:
     """
     Delete events older than RETENTION_DAYS, batched + committed per
@@ -162,6 +279,13 @@ def run_event_retention(conn, now_ms: int) -> int:
     Returns total rows deleted.
     """
     cutoff_ms = now_ms - (RETENTION_DAYS * 24 * 3_600 * 1_000)
+    # J4-part-1: DROP fully-aged WHOLE partitions FIRST (instant
+    # metadata op, no row scan, no dead tuples). Fail-safe by
+    # construction — never raises; the batched row-DELETE below is a
+    # complete superset fallback that still cleans the straddle
+    # partition + events_default + anything the drop phase skipped.
+    # The DELETE literal is UNCHANGED ⟹ audit_retention_batched green.
+    _drop_fully_aged_event_partitions(conn, cutoff_ms)
     return _run_batched(
         conn,
         text(

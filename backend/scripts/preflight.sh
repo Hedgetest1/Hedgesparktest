@@ -971,6 +971,18 @@ else
     tail -15 /tmp/preflight_retb.log
 fi
 
+# J4-part-1: the partition-DROP retention path MUST DETACH ...
+# CONCURRENTLY (plain DETACH / direct child DROP AccessExclusive-locks
+# the PARENT `events` ⟹ 10k ingest stall) + never DROP the parent /
+# events_default + stay cutoff-gated + keep the batched fallback.
+step "Partition-drop safety audit (audit_partition_drop_safety.py)"
+if "$PY" scripts/audit_partition_drop_safety.py > /tmp/preflight_pds.log 2>&1; then
+    ok "DETACH CONCURRENTLY + no parent-drop + events_default/cutoff guards intact"
+else
+    bad "partition-DROP retention safety regressed — see /tmp/preflight_pds.log"
+    tail -15 /tmp/preflight_pds.log
+fi
+
 # b35b1ac 20s SET LOCAL is request-only BY DESIGN — workers run
 # multi-minute jobs (retention/GDPR) and must NOT inherit it. If a
 # worker imports a request DB dep its long jobs silently die at 20s.
