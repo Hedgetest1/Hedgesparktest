@@ -41,16 +41,25 @@ def test_track_buffers_ONLY_non_purchase_events():
 
 
 def test_event_fields_match_track_fields_dict():
-    """ib._EVENT_FIELDS MUST equal the keys of track.py's `_fields`
-    dict (the in-code comment promises it; a drift = wrong/dropped
-    columns in the bulk INSERT)."""
-    src = open("app/api/track.py").read()
-    start = src.index("_fields = {")
-    body = src[start:src.index("}", start)]
-    keys = set(__import__("re").findall(r'"([a-z_]+)":', body))
+    """ib._EVENT_FIELDS MUST equal the keys produced by track.py's
+    single field source. As of 2026-05-18 that source is the shared
+    helper `_event_fields_from_payload` (used by /track AND
+    /track/batch — the inline `_fields = {…}` literal was unified
+    away; the old brittle source-text parse moved with it). A drift
+    here = wrong/dropped columns in the buffer bulk-INSERT. Asserted
+    the robust way (call the producer) instead of regexing source."""
+    from app.api.track import TrackPayload, _event_fields_from_payload
+
+    sample = TrackPayload(
+        shop_domain="s.myshopify.com",
+        visitor_id="v1",
+        event_type="product_view",
+    )
+    keys = set(_event_fields_from_payload(sample).keys())
     assert keys == set(ib._EVENT_FIELDS), (
-        f"drift: track _fields {keys ^ set(ib._EVENT_FIELDS)} "
-        f"differs from ingest_buffer._EVENT_FIELDS")
+        f"drift: track _event_fields_from_payload "
+        f"{keys ^ set(ib._EVENT_FIELDS)} differs from "
+        f"ingest_buffer._EVENT_FIELDS")
 
 
 # ── buffer mechanics (pure Redis, no DB) ────────────────────────────

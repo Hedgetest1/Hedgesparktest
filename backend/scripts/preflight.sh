@@ -934,6 +934,19 @@ else
     tail -20 /tmp/preflight_track_lazy_db.log
 fi
 
+# honest-residual #7: /track/batch non-purchase items must buffer
+# (pool-cascade-immune like single /track) AND every Event() must use
+# the single _event_fields_from_payload source (kills the pre-fix
+# utm_*/click_id/landing_page batch attribution-drift). Cheap AST
+# check; KEEP STRICT.
+step "Track batch buffered + field-source (audit_track_batch_buffered.py)"
+if "$PY" scripts/audit_track_batch_buffered.py > /tmp/preflight_track_batch_buf.log 2>&1; then
+    ok "/track/batch buffers non-purchase + single Event field source"
+else
+    bad "batch write path regressed (pool-cascade or field-drift) — see /tmp/preflight_track_batch_buf.log"
+    tail -20 /tmp/preflight_track_batch_buf.log
+fi
+
 # The per-request connection-hold bound (SET LOCAL statement_timeout)
 # is the class-wide structural defense for the 284 uncached handlers.
 # If a refactor drops it from any request dep, unbounded queries can

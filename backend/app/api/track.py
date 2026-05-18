@@ -743,6 +743,42 @@ def _resolve_visitor_from_shopify_y(shop_domain: str, shopify_client_id: str) ->
     return None
 
 
+def _event_fields_from_payload(payload: "TrackPayload") -> dict:
+    """Single source of the Event field values — shared by /track and
+    /track/batch, on BOTH branches: Event(**fields) for the
+    synchronous purchase path and enqueue_event(fields) for the async
+    analytics path. One place ⟹ a column drift is ONE edit; the
+    returned keys MUST stay == ingest_buffer._EVENT_FIELDS (locked by
+    test_event_fields_match_buffer_contract). Pure: no DB, no Redis.
+
+    Before 2026-05-18 /track/batch had its OWN inline Event(...) with
+    only 12 of the 19 columns — it silently dropped utm_*/click_id/
+    landing_page (an attribution-loss drift). Unifying here kills that
+    class permanently."""
+    canonical_product_url = normalize_product_url(payload.product_url)
+    return {
+        "shop_domain":    payload.shop_domain,
+        "visitor_id":     payload.visitor_id,
+        "event_type":     payload.event_type,
+        "url":            payload.page_url,
+        "product_url":    canonical_product_url,
+        "timestamp":      payload.timestamp,
+        "dwell_seconds":  payload.dwell_seconds,
+        "max_scroll_depth": payload.scroll_depth,
+        "source_type":    payload.source_type or None,
+        "referrer":       payload.referrer or None,
+        "utm_medium":     payload.utm_medium or None,
+        "utm_source":     payload.utm_source[:128] if payload.utm_source else None,
+        "utm_campaign":   payload.utm_campaign[:256] if payload.utm_campaign else None,
+        "utm_content":    payload.utm_content[:256] if payload.utm_content else None,
+        "utm_term":       payload.utm_term[:256] if payload.utm_term else None,
+        "click_id":       payload.click_id[:256] if payload.click_id else None,
+        "landing_page":   payload.landing_page[:512] if payload.landing_page else None,
+        "product_id":     payload.product_id or None,
+        "device_type":    payload.device_type if payload.device_type in ("mobile", "desktop") else None,
+    }
+
+
 @router.post("/track")
 def track_event(request: Request, payload: TrackPayload, db: Session = Depends(get_lazy_db)):
     """
@@ -816,34 +852,13 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
     try:
         # Normalize defensively — handles old tracker versions, third-party
         # senders, and any full URL that slipped through. None for
-        # non-product input. Pure (no DB), needed by both branches.
+        # non-product input. Pure (no DB), needed by the heatmap call.
         canonical_product_url = normalize_product_url(payload.product_url)
 
-        # Single source of the Event field values — used as Event(**_fields)
-        # for the synchronous purchase path AND enqueue(_fields) for the
-        # async analytics path (one place ⟹ a column drift is one edit;
-        # the keys MUST match ingest_buffer._EVENT_FIELDS).
-        _fields = {
-            "shop_domain":    payload.shop_domain,
-            "visitor_id":     payload.visitor_id,
-            "event_type":     payload.event_type,
-            "url":            payload.page_url,
-            "product_url":    canonical_product_url,
-            "timestamp":      payload.timestamp,
-            "dwell_seconds":  payload.dwell_seconds,
-            "max_scroll_depth": payload.scroll_depth,
-            "source_type":    payload.source_type or None,
-            "referrer":       payload.referrer or None,
-            "utm_medium":     payload.utm_medium or None,
-            "utm_source":     payload.utm_source[:128] if payload.utm_source else None,
-            "utm_campaign":   payload.utm_campaign[:256] if payload.utm_campaign else None,
-            "utm_content":    payload.utm_content[:256] if payload.utm_content else None,
-            "utm_term":       payload.utm_term[:256] if payload.utm_term else None,
-            "click_id":       payload.click_id[:256] if payload.click_id else None,
-            "landing_page":   payload.landing_page[:512] if payload.landing_page else None,
-            "product_id":     payload.product_id or None,
-            "device_type":    payload.device_type if payload.device_type in ("mobile", "desktop") else None,
-        }
+        # Single source of the Event field values — shared with
+        # /track/batch and the ingest-buffer drain contract (keys ==
+        # ingest_buffer._EVENT_FIELDS). See _event_fields_from_payload.
+        _fields = _event_fields_from_payload(payload)
 
         # ── J3-part-2: high-volume NON-purchase analytics → async
         # buffer (ZERO request DB conn; a singleton drain thread
@@ -974,11 +989,22 @@ def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_lazy
     try:
         MAX_BATCH = 50
         events_list = payload.events[:MAX_BATCH]
-        accepted = 0
+        # Buffered (non-purchase → Redis, fire-and-forget, independent
+        # of the DB txn) vs synced (purchase → DB, committed together)
+        # are counted separately: a purchase-commit IntegrityError must
+        # NOT zero analytics that were already safely enqueued (the
+        # under-report the #7 split would otherwise introduce).
+        buffered_ok = 0
+        synced = 0
         rejected = 0
 
-        # Deduplicate visitor upserts within the batch
+        # Deduplicate visitor upserts within the batch (purchase path
+        # only — buffered events' visitors are upserted by the drain).
         seen_visitors: set[tuple[str, str]] = set()
+        # Deferred import mirrors the single-/track lazy import (keeps
+        # whatever circular-import avoidance the author intended);
+        # hoisted out of the per-item loop (once, not ≤50×).
+        from app.services.ingest_buffer import enqueue_event
 
         for item in events_list:
             if not is_valid_shop_domain(item.shop_domain):
@@ -988,26 +1014,29 @@ def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_lazy
                 rejected += 1
                 continue
 
+            # ── honest-residual #7: mirror the single-/track J3-part-2
+            # split. NON-purchase = async buffer (ZERO request DB conn —
+            # the dominant batch volume off the shared pool, making the
+            # batch path pool-cascade-immune like single /track);
+            # purchase = full synchronous path (revenue/attribution,
+            # never buffered, §0). Both branches use the SAME
+            # _event_fields_from_payload source (no field drift,
+            # keys == ingest_buffer._EVENT_FIELDS). A batch with zero
+            # purchases never opens the lazy session ⟹ db.commit()
+            # below is a guarded no-op ⟹ 0 connections (composes with
+            # the #6 lazy WRITE session).
+            if item.event_type != "purchase":
+                enqueue_event(_event_fields_from_payload(item))
+                _store_shopify_y_mapping(item)
+                buffered_ok += 1
+                continue
+
             vkey = (item.visitor_id, item.shop_domain)
             if vkey not in seen_visitors:
                 _upsert_visitor(db, item.visitor_id, item.shop_domain)
                 seen_visitors.add(vkey)
 
-            canonical_product_url = normalize_product_url(item.product_url)
-            db.add(Event(
-                shop_domain=item.shop_domain,
-                visitor_id=item.visitor_id,
-                event_type=item.event_type,
-                url=item.page_url,
-                product_url=canonical_product_url,
-                timestamp=item.timestamp,
-                dwell_seconds=item.dwell_seconds,
-                max_scroll_depth=item.scroll_depth,
-                source_type=item.source_type or None,
-                referrer=item.referrer or None,
-                product_id=item.product_id or None,
-                device_type=item.device_type if item.device_type in ("mobile", "desktop") else None,
-            ))
+            db.add(Event(**_event_fields_from_payload(item)))
 
             # Store shopify_y mapping for identity bridging
             _store_shopify_y_mapping(item)
@@ -1015,14 +1044,20 @@ def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_lazy
             # Purchase events also persist to shop_orders
             _persist_purchase(db, item)
 
-            accepted += 1
+            synced += 1
 
-        if accepted > 0:
+        # Commit ONLY the purchase work. All-non-purchase batch ⟹
+        # synced==0 ⟹ no commit ⟹ the #6 lazy session never opens ⟹
+        # 0 connections (proven live: x-query-count 0). A commit
+        # IntegrityError zeros ONLY the synced count — the buffered
+        # analytics are already in Redis and stay accepted.
+        if synced > 0:
             try:
                 db.commit()
             except IntegrityError:
                 db.rollback()
-                accepted = 0
+                synced = 0
+        accepted = buffered_ok + synced
 
         return JSONResponse(
             content={"status": "ok", "accepted": accepted, "rejected": rejected},
