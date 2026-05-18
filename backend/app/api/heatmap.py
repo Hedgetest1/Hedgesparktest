@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_read_db
 from app.core.deps import require_merchant_session
+from app.core.url_utils import normalize_product_url
 
 log = logging.getLogger(__name__)
 
@@ -379,7 +380,22 @@ def get_spatial_heatmap(
             "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
         }
 
-    url_h = _h.md5((product_url or "").encode("utf-8")).hexdigest()[:16]
+    # SYMMETRIC key canonicalization with the WRITE side (2026-05-18,
+    # independent audit RISK #3). _bump_heatmap_bucket keys on
+    # md5(normalize_product_url(product_url) or page_url); this READ
+    # path previously keyed on md5(product_url) RAW → the two matched
+    # only by coincidence IF the dashboard happened to pass an
+    # already-normalized value. A product URL carrying a variant/query
+    # (e.g. /products/x?variant=123) normalizes to /products/x on
+    # write but hashed raw on read ⟹ DIFFERENT key ⟹ a populated
+    # heatmap rendered SILENTLY EMPTY. Normalize here too so the keys
+    # coincide BY CONSTRUCTION, independent of the caller.
+    # normalize_product_url is idempotent on an already-normalized
+    # path and None-safe; fall back to the raw value for a
+    # non-normalizable input (preserves the prior behaviour for that
+    # out-of-scope edge — no regression).
+    _key_url = normalize_product_url(product_url) or product_url or ""
+    url_h = _h.md5(_key_url.encode("utf-8")).hexdigest()[:16]
     key = f"hs:hmap:{shop}:{url_h}:{et_norm}"
     try:
         raw = rc.hgetall(key) or {}
