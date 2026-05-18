@@ -233,7 +233,7 @@ def get_cohort_retention(
 
     return {
         "window_weeks":          weeks,
-        "generated_at":          datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
+        "generated_at":          _now.isoformat() + "Z",
         "cohorts":               cohorts[:weeks],
         "avg_week_1_retention":  avg_week1,
         "avg_week_4_retention":  avg_week4,
