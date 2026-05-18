@@ -173,6 +173,20 @@ else
     tail -20 /tmp/preflight_env_perms.log
 fi
 
+# Sibling of the env-perm gate: service-owned /etc configs must keep
+# the service user as owner + non-world mode. Layer 1 of the 2-layer
+# defense (runtime = invariant_monitor._check_service_config_perms).
+# Mechanizes feedback_root_edit_breaks_service_config_perms.md — the
+# 2026-05-15b pgbouncer outage class (root Edit → root:root → restart
+# fails). Fail-open on absent files (a host without pgbouncer is fine).
+step "Service config perms (audit_service_config_perms.py)"
+if "$PY" scripts/audit_service_config_perms.py > /tmp/preflight_svc_perms.log 2>&1; then
+    ok "service configs: correct owner/group + not world-accessible"
+else
+    bad "service config perm drift — see /tmp/preflight_svc_perms.log"
+    tail -20 /tmp/preflight_svc_perms.log
+fi
+
 # ---------------------------------------------------------------------------
 # 2b''. GDPR receipt-only contract — `gdpr_requests.result_summary` must
 # never carry raw PII (events/orders/visitor_state/nudge_events arrays).

@@ -629,6 +629,12 @@ def run_invariant_check(db: Session) -> dict:
         _check_env_file_perms(db, summary)
     except Exception as exc:
         log.warning("invariant_monitor: env-perm check failed: %s", exc)
+    try:
+        _check_service_config_perms(db, summary)
+    except Exception as exc:
+        log.warning(
+            "invariant_monitor: service-config-perm check failed: %s", exc
+        )
     # preventer-regression check removed Stage 2-E (depended on old-brain
     # bugfix_pipeline.check_preventer_regressions, deleted with the
     # supersession sweep). Brain Vero owns regression detection now via
@@ -1501,6 +1507,99 @@ def _check_operator_shop_drift(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: operator-drift alert write failed: %s", exc)
+
+
+def _check_service_config_perms(db: Session, summary: dict) -> None:
+    """Detect service-owned /etc config files that drifted to the wrong
+    owner/group or world-readable mode.
+
+    Layer 2 of the 2-layer service-config-perms defense (the static
+    `scripts/audit_service_config_perms.py` is layer 1). The 2026-05-15b
+    incident: a root Edit of `/etc/pgbouncer/pgbouncer.ini` flipped it
+    `root:root`; RELOAD kept working (running process held the fd) so the
+    drift was INVISIBLE until `systemctl restart pgbouncer` then FAILED
+    (privilege-dropped `postgres` could no longer read it) → backend 503
+    for ~3 min. There was NO detection until the restart failed; this
+    15-min cycle closes that gap — drift is caught within minutes,
+    BEFORE the next restart.
+
+    Reuses the script's `check()` so the two layers CANNOT diverge
+    (same single-predicate discipline as the env-perm pair). Born
+    2026-05-18, mechanizes `feedback_root_edit_breaks_service_config_
+    perms.md` (the carried #13 R-fix, doctrine-only across ≥4 sessions).
+
+    Auto-resolves the prior alert when ownership/mode is restored on a
+    later cycle (matches the env_perm_drift / operator_shop_drift heal
+    pattern). Does NOT auto-chown (the env-perm precedent does not
+    auto-modify either; auto-chowning /etc/* from a worker is riskier
+    than the alert+remediation it would replace — the value is the
+    early CRITICAL signal before a restart, not silent mutation).
+    """
+    summary["checked"] += 1
+    import sys as _sys
+    from pathlib import Path as _Path
+    try:
+        from app.services.alerting import write_alert
+    except Exception as exc:
+        log.warning(
+            "invariant_monitor: service-config-perm imports failed: %s", exc
+        )
+        return
+
+    _scripts_dir = str(_Path(__file__).resolve().parents[2] / "scripts")
+    if _scripts_dir not in _sys.path:
+        _sys.path.insert(0, _scripts_dir)
+    try:
+        from audit_service_config_perms import check as _svc_check
+    except Exception as exc:
+        log.warning(
+            "invariant_monitor: audit_service_config_perms import "
+            "failed: %s", exc
+        )
+        return
+
+    drifted = _svc_check()  # [(path, reason)] — present + drifted only
+
+    if not drifted:
+        _auto_resolve_prior_invariant(db, "invariant:service_config_perm_drift")
+        return
+
+    summary["failed"] += 1
+    try:
+        write_alert(
+            db,
+            severity="critical",
+            source="invariant:service_config_perm_drift",
+            alert_type="invariant_regression",
+            summary=(
+                f"Service config(s) with wrong owner/mode: "
+                f"{len(drifted)} file(s) — next restart risks an outage"
+            ),
+            detail={
+                "drifted": [
+                    {"path": p, "reason": r} for p, r in drifted
+                ],
+                "remediation": (
+                    "Restore the service user as owner + non-world "
+                    "mode, e.g. `chown postgres:postgres <path> && "
+                    "chmod 640 <path>`. A root Edit/Write of an /etc "
+                    "service config rewrites it root:root; RELOAD keeps "
+                    "working (running fd) so the drift is invisible "
+                    "until the next restart fails and takes the "
+                    "dependency down. Static auditor: "
+                    "`./venv/bin/python scripts/audit_service_config_perms.py`."
+                ),
+                "doctrine_ref": (
+                    "feedback_root_edit_breaks_service_config_perms.md"
+                ),
+            },
+        )
+        summary["alerts_written"] += 1
+    except Exception as exc:
+        log.error(
+            "invariant_monitor: service-config-perm alert write "
+            "failed: %s", exc
+        )
 
 
 def _check_env_file_perms(db: Session, summary: dict) -> None:
