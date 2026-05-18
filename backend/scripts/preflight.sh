@@ -921,6 +921,19 @@ else
     tail -20 /tmp/preflight_cfcp.log
 fi
 
+# /track is the highest-VOLUME path; its cache_get short-circuit is
+# indirected through _is_known_shop so the generic class audit above
+# is AST-local-blind to it. This dedicated preventer positively pins
+# /track + /track/batch to Depends(get_lazy_db) (jewel J3 follow-on,
+# honest-residual #6). Cheap AST check; KEEP STRICT.
+step "Track lazy-DB audit (audit_track_lazy_db.py)"
+if "$PY" scripts/audit_track_lazy_db.py > /tmp/preflight_track_lazy_db.log 2>&1; then
+    ok "/track + /track/batch use Depends(get_lazy_db) (0-conn buffered path)"
+else
+    bad "highest-volume /track path pins a pooled connection — see /tmp/preflight_track_lazy_db.log"
+    tail -20 /tmp/preflight_track_lazy_db.log
+fi
+
 # The per-request connection-hold bound (SET LOCAL statement_timeout)
 # is the class-wide structural defense for the 284 uncached handlers.
 # If a refactor drops it from any request dep, unbounded queries can

@@ -14,7 +14,10 @@ for every endpoint (the 284-handler contention class reopens).
 This audit fails (exit 1) unless ALL of:
   - get_db
   - get_read_db
-  - _LazyReadSession._ensure
+  - EVERY proxy `_ensure` (now two: _LazyReadSession AND _LazyDbSession
+    — the write-side sibling added with the lazy /track fix; a single
+    unbound proxy reopens the contention class, so the check is AND
+    over all `_ensure` defs, not "some _ensure binds it").
 in app/core/database.py contain a call to `_apply_request_timeouts`.
 """
 from __future__ import annotations
@@ -42,9 +45,13 @@ def main() -> int:
     seen: dict[str, bool] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name in _REQUIRED:
-            # _ensure must be the _LazyReadSession one; any def named
-            # _ensure here is that proxy method (no other _ensure).
-            seen[node.name] = _calls_apply(node)
+            ok = _calls_apply(node)
+            # `_ensure` now has TWO defs (_LazyReadSession AND
+            # _LazyDbSession). AND over all occurrences: every proxy
+            # must bind the timeout — a single unbound `_ensure` would
+            # otherwise pass on a lucky walk order while reopening the
+            # unbounded-pool-hold class for that proxy's call sites.
+            seen[node.name] = ok if node.name not in seen else (seen[node.name] and ok)
 
     missing = sorted(_REQUIRED - {k for k, v in seen.items() if v})
     if missing:
@@ -56,7 +63,8 @@ def main() -> int:
               "Re-add _apply_request_timeouts() to each.")
         return 1
     print("audit_request_timeout_wired: OK — get_db / get_read_db / "
-          "_LazyReadSession._ensure all bound by _apply_request_timeouts.")
+          "every proxy _ensure (_LazyReadSession + _LazyDbSession) "
+          "bound by _apply_request_timeouts.")
     return 0
 
 

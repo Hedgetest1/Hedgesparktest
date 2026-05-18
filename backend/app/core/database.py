@@ -313,6 +313,96 @@ def get_lazy_read_db():
 
 
 # ---------------------------------------------------------------------------
+# Lazy WRITE-session dependency — the write-path sibling of
+# _LazyReadSession (jewel J3 follow-on, 2026-05-17; honest-residual #6).
+#
+# `/track` is the highest-VOLUME path on the system. Post J3-part-2 the
+# dominant traffic (non-purchase analytics) is Redis-only on the hot
+# path: known-shop cache hit (track.py:_is_known_shop short-circuits
+# before any db.query) → enqueue to the ingest buffer → heatmap →
+# return, ZERO DB work. But FastAPI resolves Depends() BEFORE the
+# handler body, so the pre-existing `Depends(get_db)` pinned a primary
+# PgBouncer connection (and ran 2 SET LOCAL) for the WHOLE request even
+# on that buffered path — the same c≈64 conn-pin class the lazy-read
+# fix closed for cache-first GETs, here on the busiest write path,
+# behind the shared 150-conn ceiling.
+#
+# Bound to SessionLocal (primary, WRITABLE) — the purchase path
+# (revenue/attribution, never buffered, §0) still add/commit/rollback
+# normally; the connection opens on its first real DB use
+# (_upsert_visitor's query). The buffered path never calls _ensure →
+# stays 0-conn AND skips the SET LOCAL, identically to _LazyReadSession.
+#
+# rollback()/commit() are GUARDED no-ops when no connection was ever
+# taken: track_event's write_no_rollback defense does
+# `except Exception: db.rollback()`. If the failure was on the
+# Redis-only path before any DB use there is NO transaction to roll
+# back — routing rollback() through __getattr__ would _ensure() a
+# checkout purely to roll back nothing, silently defeating the 0-conn
+# property on the error path (and is semantically wrong). The guard
+# keeps the error path 0-conn too.
+# ---------------------------------------------------------------------------
+class _LazyDbSession:
+    __slots__ = ("_real",)
+
+    def __init__(self) -> None:
+        self._real = None
+
+    def _ensure(self):
+        if self._real is None:
+            self._real = SessionLocal()
+            # FIRST USE only — a buffered (Redis-only) request never
+            # calls _ensure, so it stays 0-conn AND skips this SET.
+            _apply_request_timeouts(self._real)
+        return self._real
+
+    def __getattr__(self, name):
+        # __getattr__ only fires for names NOT found normally, so
+        # _real / _ensure / rollback / commit / close_if_opened never
+        # route here (they are real attrs/methods).
+        return getattr(self._ensure(), name)
+
+    def __enter__(self):
+        return self._ensure().__enter__()
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._real is not None:
+            return self._real.__exit__(exc_type, exc, tb)
+        return False
+
+    def rollback(self) -> None:
+        # No conn ever taken ⟹ no txn ⟹ nothing to roll back. Must NOT
+        # _ensure(): the error path before first DB use stays 0-conn.
+        if self._real is not None:
+            self._real.rollback()
+
+    def commit(self) -> None:
+        # Same guard symmetry: a 0-conn request has nothing to commit.
+        if self._real is not None:
+            self._real.commit()
+
+    def close_if_opened(self) -> None:
+        if self._real is not None:
+            self._real.close()
+            self._real = None
+
+
+def get_lazy_db():
+    """FastAPI dependency — yields a lazy WRITE session that checks out
+    a primary pooled connection ONLY on first use. A request whose hot
+    path is Redis-only (the buffered non-purchase /track path, the
+    highest-volume path on the system) holds ZERO DB connections for
+    the whole request. Write-capable: the purchase path commits
+    normally once it touches `db`. Write-side sibling of
+    get_lazy_read_db (same lazy-checkout contract)."""
+    holder = _LazyDbSession()
+    try:
+        yield holder
+    finally:
+        holder.close_if_opened()
+
+
+# ---------------------------------------------------------------------------
 # Request-scoped session dependency
 #
 # Use this in FastAPI routes via Depends(get_db).  The session is guaranteed

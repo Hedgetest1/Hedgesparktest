@@ -46,7 +46,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_lazy_db
 from app.core.url_utils import normalize_product_url
 from app.models.event import Event
 from app.models.merchant import Merchant
@@ -744,7 +744,7 @@ def _resolve_visitor_from_shopify_y(shop_domain: str, shopify_client_id: str) ->
 
 
 @router.post("/track")
-def track_event(request: Request, payload: TrackPayload, db: Session = Depends(get_db)):
+def track_event(request: Request, payload: TrackPayload, db: Session = Depends(get_lazy_db)):
     """
     Ingest a single storefront event from spark-tracker.js.
 
@@ -925,7 +925,7 @@ def track_event(request: Request, payload: TrackPayload, db: Session = Depends(g
         # The outer admission-guard try wraps db.add + db.commit. Any
         # failure in the body (visitor upsert, persist_purchase, a
         # non-IntegrityError commit error) MUST roll the session back
-        # before it propagates / before get_db teardown — never return
+        # before it propagates / before get_lazy_db teardown — never return
         # a half-written txn to the shared PgBouncer pool
         # (write_no_rollback). Defense-in-depth: explicit, early, here.
         db.rollback()
@@ -951,7 +951,7 @@ class BatchTrackPayload(BaseModel):
 
 
 @router.post("/track/batch")
-def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_db)):
+def track_event_batch(payload: BatchTrackPayload, db: Session = Depends(get_lazy_db)):
     """
     Ingest a batch of storefront events in a single transaction.
 
