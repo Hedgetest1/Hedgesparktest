@@ -167,6 +167,43 @@ def test_drain_REALLY_persists_events_and_visitors():
         db0.close()
 
 
+def test_drain_isolates_poison_row_keeps_the_rest():
+    """RISK #2 (independent audit 2026-05-18): a single poison row
+    (timestamp=None → events.timestamp BIGINT NOT NULL violation in the
+    batched execute_values) must NOT drop the whole _DRAIN_BATCH. The
+    row-resilient fallback persists the good rows and drops only the
+    bad one. Pre-fix: 0 persisted (all ≤1000 lost). REAL round-trip."""
+    import uuid
+    from app.core.database import SessionLocal
+    from sqlalchemy import text
+    shop = f"wlrig_poison_{uuid.uuid4().hex[:8]}.myshopify.com"
+    db0 = SessionLocal()
+    try:
+        assert ib.enqueue_event({"shop_domain": shop, "visitor_id": "g1",
+                                 "event_type": "product_view",
+                                 "timestamp": 1747000000000}) is True
+        assert ib.enqueue_event({"shop_domain": shop, "visitor_id": "bad",
+                                 "event_type": "scroll"}) is True  # NO timestamp → poison
+        assert ib.enqueue_event({"shop_domain": shop, "visitor_id": "g2",
+                                 "event_type": "add_to_cart",
+                                 "timestamp": 1747000000001}) is True
+        n = ib.drain_events(max_total=100)
+        ev = db0.execute(text(
+            "SELECT count(*) FROM events WHERE shop_domain=:s"),
+            {"s": shop}).scalar()
+        # 2 good rows salvaged, the timestamp=None row dropped — NOT 0.
+        assert ev == 2, f"poison row dropped the batch (events={ev}, expected 2)"
+        assert n == 2, f"drain returned {n}, expected 2 salvaged"
+        assert ib.buffer_depth() == 0, "buffer must be fully drained"
+    finally:
+        db0.execute(text("DELETE FROM events WHERE shop_domain=:s"),
+                    {"s": shop})
+        db0.execute(text("DELETE FROM visitors WHERE shop_domain=:s"),
+                    {"s": shop})
+        db0.commit()
+        db0.close()
+
+
 def test_drain_bulk_insert_sql_shape(monkeypatch):
     """Cheap shape guard (complements the real round-trip above):
     drain issues an events bulk INSERT + a visitor upsert ON CONFLICT,

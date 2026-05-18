@@ -157,12 +157,67 @@ def drain_events(max_total: int | None = None) -> int:
                 # (session is closed in finally regardless) but NOT
                 # silent (§2 r2 zero-silent-sinks).
                 log.warning("ingest_buffer: drain rollback failed: %s", rb_exc)
-            log.warning("ingest_buffer: drain batch failed "
-                        "(%d events dropped this batch): %s",
-                        len(batch), exc)
+            # ROW-RESILIENT FALLBACK (2026-05-18, independent audit
+            # RISK #2). The batched execute_values is all-or-nothing:
+            # ONE poison row (NOT-NULL violation, bad type, oversize)
+            # would otherwise drop the WHOLE _DRAIN_BATCH (≤1000
+            # events, already LPOP'd from Redis ⟹ unrecoverable). At
+            # 10k one malformed/hostile client could thus erase ~1000
+            # GOOD events across all merchants per poisoned batch. Bound
+            # the loss to exactly the bad rows: re-insert row-by-row in
+            # a FRESH session, skipping (log+count) only the failures.
+            # This is the cold error path — per-row commits are fine.
+            salvaged = _drain_rows_resilient(batch)
+            written += salvaged
+            log.warning("ingest_buffer: drain batch failed — "
+                        "row-resilient fallback salvaged %d/%d "
+                        "(%d poison row(s) dropped): %s",
+                        salvaged, len(batch), len(batch) - salvaged, exc)
         finally:
             db.close()
     return written
+
+
+def _drain_rows_resilient(batch: list[dict]) -> int:
+    """Re-insert a failed drain batch one row at a time so a single
+    poison row cannot destroy the rest (independent audit RISK #2).
+    Fresh session (the batch txn is aborted); per-row commit; bad rows
+    are logged + counted, never silently swallowed (§2 r2). Returns the
+    number of rows actually persisted."""
+    from app.core.database import SessionLocal
+    saved = 0
+    db2 = SessionLocal()
+    try:
+        raw = db2.connection().connection  # psycopg2 raw conn
+        cur = raw.cursor()
+        _cols = ",".join(_EVENT_FIELDS)
+        _ph = ",".join(["%s"] * len(_EVENT_FIELDS))
+        for e in batch:
+            try:
+                vid, shop = e.get("visitor_id"), e.get("shop_domain")
+                if vid and shop:
+                    cur.execute(
+                        "INSERT INTO visitors (visitor_id, shop_domain, "
+                        "first_seen, last_seen) VALUES (%s,%s,now(),now()) "
+                        "ON CONFLICT (visitor_id, shop_domain) DO UPDATE "
+                        "SET last_seen = EXCLUDED.last_seen", (vid, shop))
+                cur.execute(
+                    f"INSERT INTO events ({_cols}) VALUES ({_ph})",
+                    tuple(e.get(f) for f in _EVENT_FIELDS))
+                raw.commit()
+                saved += 1
+            except Exception as row_exc:
+                try:
+                    raw.rollback()
+                except Exception:
+                    pass  # SILENT-EXCEPT-OK: rollback of an aborted row
+                log.warning(
+                    "ingest_buffer: dropped 1 poison drain row "
+                    "(shop=%s vid=%s): %s",
+                    e.get("shop_domain"), e.get("visitor_id"), row_exc)
+    finally:
+        db2.close()
+    return saved
 
 
 def buffer_depth() -> int:

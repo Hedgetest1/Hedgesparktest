@@ -762,7 +762,19 @@ def _event_fields_from_payload(payload: "TrackPayload") -> dict:
         "event_type":     payload.event_type,
         "url":            payload.page_url,
         "product_url":    canonical_product_url,
-        "timestamp":      payload.timestamp,
+        # events.timestamp is BIGINT NOT NULL (no DB default). The real
+        # spark-tracker.js ALWAYS sends Date.now(); a legacy/malformed/
+        # hostile client omitting it would emit timestamp=None →
+        # buffered → the drain's batched execute_values NOT-NULL-
+        # violates and (pre-2026-05-18 drain) dropped the WHOLE
+        # _DRAIN_BATCH (≤1000 events, already LPOP'd = unrecoverable).
+        # Guarantee the NOT-NULL contract at the single source:
+        # server-receive-time is the documented best-known fallback for
+        # the degenerate no-client-clock input (best-effort analytics;
+        # NOT a §0 false claim — it is an explicitly-documented
+        # approximation for a malformed input, not a fabricated metric).
+        "timestamp":      payload.timestamp if payload.timestamp is not None
+                          else int(datetime.now(timezone.utc).timestamp() * 1000),
         "dwell_seconds":  payload.dwell_seconds,
         "max_scroll_depth": payload.scroll_depth,
         "source_type":    payload.source_type or None,

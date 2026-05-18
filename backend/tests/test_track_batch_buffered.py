@@ -90,6 +90,22 @@ def test_event_fields_match_buffer_contract():
     assert f["landing_page"] == "https://x.myshopify.com/land"
 
 
+def test_event_fields_never_emits_null_timestamp():
+    """RISK #2 root (independent audit): events.timestamp is BIGINT
+    NOT NULL with no DB default. The single source MUST guarantee a
+    non-null int even when the client omits it — else the buffered row
+    NOT-NULL-violates the drain batch. Client-supplied wins; server
+    receive-time is the documented fallback."""
+    p = TrackPayload(shop_domain="x.myshopify.com", visitor_id="v1",
+                      event_type="click")  # no timestamp
+    ts = _event_fields_from_payload(p)["timestamp"]
+    assert isinstance(ts, int) and ts > 0, f"timestamp not defaulted: {ts!r}"
+    # Client-supplied value is preserved untouched.
+    p2 = TrackPayload(shop_domain="x.myshopify.com", visitor_id="v1",
+                       event_type="click", timestamp=1747000000000)
+    assert _event_fields_from_payload(p2)["timestamp"] == 1747000000000
+
+
 def test_all_non_purchase_batch_holds_zero_db_connections():
     """The honest-residual #7 invariant: a batch with no purchase item
     enqueues every event and NEVER constructs a pooled session."""
