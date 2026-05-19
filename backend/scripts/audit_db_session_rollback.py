@@ -74,11 +74,16 @@ _SITES: list[tuple[str, str, str]] = [
     # WRONG (discarded prior rules' alerts+audit-log) → reverted →
     # correctly re-fixed with savepoint_scope.
     ("app/services/regulatory_watch.py", "with savepoint_scope(db)", "run_regulatory_audit per-rule body (BATCH)"),
+    # webhook_health: LIVE-latent #239-shape the per-site sweep missed
+    # (greps the locked list, not the class) — found by the §21
+    # multidim sweep a7de1ee12382855f5, fixed 2026-05-19f. BATCH
+    # per-topic loop (caller commits via orchestrator/aggregation).
+    ("app/services/webhook_health.py", "with savepoint_scope(db)", "repair_missing_webhooks per-topic body (BATCH)"),
 ]
 
 # Floor: this many distinct (file,token) checks must run & pass. If the
 # list is gutted the audit fails rather than vacuously passing.
-_MIN_SITES = 15
+_MIN_SITES = 16
 
 
 def main() -> int:

@@ -183,18 +183,31 @@ def repair_missing_webhooks(db: Session, shop_domain: str) -> WebhookRepairResul
             continue
         target_url = f"{_APP_URL}{relative_path}"
         try:
-            wh_id, created = asyncio.get_event_loop().run_until_complete(
-                _ensure_webhook(shop_domain, token, topic, target_url)
-            )
-            if wh_id:
-                result.repaired.append(topic)
-                # Update merchant record if it's the uninstall webhook
-                if topic == "app/uninstalled" and created:
-                    merchant.webhook_id = wh_id
-                    db.flush()
-                log.info("webhook_health: repaired shop=%s topic=%s id=%s", shop_domain, topic, wh_id)
-            else:
-                result.failed.append(topic)
+            # SAVEPOINT-per-topic (write_no_rollback class — born
+            # 2026-05-19f; the §21 multidim sweep a7de1ee12382855f5
+            # found this LIVE-latent instance the earlier per-site
+            # sweep MISSED because it grepped the locked-site list, not
+            # the class). BATCH loop: merchant.webhook_id is flushed
+            # per topic, the CALLER commits (orchestrator /
+            # aggregation_worker reuse this shared db). A failed flush
+            # must roll back ONLY this topic, not poison the session
+            # for the remaining topics + the caller. _ensure_webhook is
+            # an async Shopify HTTP call (no inner commit →
+            # savepoint-legal, trace-the-helper verified).
+            from app.core.database import savepoint_scope
+            with savepoint_scope(db):
+                wh_id, created = asyncio.get_event_loop().run_until_complete(
+                    _ensure_webhook(shop_domain, token, topic, target_url)
+                )
+                if wh_id:
+                    result.repaired.append(topic)
+                    # Update merchant record if it's the uninstall webhook
+                    if topic == "app/uninstalled" and created:
+                        merchant.webhook_id = wh_id
+                        db.flush()
+                    log.info("webhook_health: repaired shop=%s topic=%s id=%s", shop_domain, topic, wh_id)
+                else:
+                    result.failed.append(topic)
         except Exception as exc:
             result.failed.append(topic)
             log.error("webhook_health: repair failed shop=%s topic=%s: %s", shop_domain, topic, exc)
