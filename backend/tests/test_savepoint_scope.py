@@ -98,3 +98,39 @@ def test_inner_full_commit_fails_loud_not_silent(_tmp):
         with savepoint_scope(db):
             db.execute(text("INSERT INTO _sp_test (id) VALUES (99)"))
             db.commit()  # the illegal inner full commit (helper-commits class)
+
+
+def test_swallowed_db_error_recovered_at_primitive(_tmp):
+    """PRIMITIVE-LEVEL structural close of the write_no_rollback
+    SWALLOW variant (Finding 1; born 2026-05-19e, §22.7 plan-verified
+    a42ea12813b7c0b7b). A body that catches+SWALLOWS a DB error
+    WITHOUT rolling back leaves the txn aborted but the SAVEPOINT
+    intact (is_active stays True → the commit-dissolution guard does
+    NOT fire). Pre-2026-05-19e this cascaded (RELEASE on aborted txn →
+    deassociated SavepointTransaction → outer txn permanently
+    poisoned). The primitive must now DETECT the aborted txn before
+    RELEASE, ROLLBACK TO SAVEPOINT (valid+recovering while still
+    associated), and raise loudly — so the outer session is usable for
+    the next iteration regardless of caller discipline. This makes the
+    swallow variant impossible for ALL present+future savepoint_scope
+    sites (the per-site audit.py fix only covered audit.py)."""
+    db = _tmp
+
+    with pytest.raises(RuntimeError, match="swallowed a DB error"):
+        with savepoint_scope(db):
+            try:
+                # Poison the txn (UndefinedTable) and SWALLOW it with
+                # NO rollback — the exact best-effort-helper bug shape.
+                db.execute(text("SELECT * FROM __sp_no_such_table__"))
+            except Exception:
+                pass  # swallow, no rollback (the bug)
+            # body returns "normally" → savepoint_scope.__exit__ must
+            # detect the aborted txn and recover, not RELEASE-cascade.
+
+    # The whole point: the outer session is RECOVERED, not poisoned —
+    # the next iteration's work succeeds (pre-fix this raised
+    # InFailedSqlTransaction forever).
+    assert db.execute(text("SELECT 1")).scalar() == 1
+    db.execute(text("INSERT INTO _sp_test (id) VALUES (777)"))
+    assert {r[0] for r in db.execute(
+        text("SELECT id FROM _sp_test")).fetchall()} == {777}

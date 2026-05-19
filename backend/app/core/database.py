@@ -233,6 +233,47 @@ def savepoint_scope(session):
                 "already per-iteration durable). See project_db_session_"
                 "rollback_class_sweep_2026_05_19."
             )
+        # write_no_rollback SWALLOW variant (Finding 1, born 2026-05-19c;
+        # primitive-level structural close 2026-05-19e — §22.7 plan-
+        # verified a42ea12813b7c0b7b). The body CAUGHT+SWALLOWED a DB
+        # error WITHOUT rolling back → the connection txn is ABORTED
+        # (psycopg2 INERROR) but the SAVEPOINT was never dissolved
+        # (is_active stayed True, the guard above did NOT fire). If we
+        # let nested.commit() run, RELEASE SAVEPOINT on an aborted txn
+        # raises, then SQLAlchemy deassociates the SavepointTransaction
+        # so the recovery rollback becomes a no-op → outer txn
+        # permanently poisoned → cascade (the exact Finding-1 mechanism;
+        # neither the semantic preventer nor the is_active guard catch
+        # the swallow variant). Detect BEFORE commit while the savepoint
+        # is still associated; ROLLBACK TO SAVEPOINT is valid AND
+        # recovering in an aborted txn. Pure client-side libpq read
+        # (zero round-trip, idempotent, false-positive-impossible — a
+        # healthy body cannot leave the conn INERROR). Detector failure
+        # must NEVER convert a healthy release into a crash → degrade
+        # to prior behaviour.
+        _aborted = False
+        try:
+            import psycopg2.extensions as _pgext
+            _raw = session.connection().connection.dbapi_connection
+            _aborted = (
+                _raw.info.transaction_status
+                == _pgext.TRANSACTION_STATUS_INERROR
+            )
+        except Exception:
+            _aborted = False  # detector degrade-safe: proceed as before
+        if _aborted:
+            try:
+                nested.rollback()  # ROLLBACK TO SAVEPOINT — recovers the outer txn
+            except Exception:
+                pass  # SILENT-EXCEPT-OK: best-effort recovery; if it can't roll back the conn is dead and the next cycle/request scope replaces it. The RuntimeError below must not be masked.
+            raise RuntimeError(
+                "savepoint_scope: the wrapped body swallowed a DB error "
+                "without rolling back (connection transaction aborted). "
+                "Rolled back to the savepoint so the outer transaction "
+                "stays usable; the swallowing code MUST rollback or use "
+                "its own savepoint. See project_db_session_rollback_"
+                "class_sweep_2026_05_19."
+            )
         try:
             nested.commit()
         except Exception:
