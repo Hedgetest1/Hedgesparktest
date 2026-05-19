@@ -253,7 +253,18 @@ def _build_rag_context(db: Session, shop_domain: str) -> dict[str, Any]:
                     line->>'title' AS title,
                     SUM((line->>'price')::numeric * (line->>'quantity')::int) AS revenue
                 FROM shop_orders so,
-                     jsonb_array_elements(COALESCE(so.line_items, '[]'::jsonb)) AS line
+                     -- write_no_rollback-sibling DataError class
+                     -- (born 2026-05-19, §21 sweep a7de1ee12382855f5):
+                     -- COALESCE only guards SQL-NULL, NOT a JSON scalar
+                     -- (`"x"`/`123`/`true` line_items → jsonb_array_
+                     -- elements panics "cannot extract elements from a
+                     -- scalar"). The CASE WHEN jsonb_typeof='array'
+                     -- form guards BOTH (the codebase-canonical safe
+                     -- shape, audit-recognized).
+                     jsonb_array_elements(
+                         CASE WHEN jsonb_typeof(so.line_items) = 'array'
+                              THEN so.line_items ELSE '[]'::jsonb END
+                     ) AS line
                 WHERE so.shop_domain = :s AND so.created_at >= :c30
                   AND line->>'title' IS NOT NULL
                 GROUP BY line->>'title'

@@ -57,6 +57,21 @@ _INLINE_CASE_RE = re.compile(
     r"CASE\s+WHEN\s+jsonb_typeof\s*\(\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\)\s*=\s*'array'",
     re.IGNORECASE,
 )
+# Class 3 (born 2026-05-19, §21 sweep a7de1ee12382855f5): the
+# bare-identifier capture above SILENTLY MISSES a function-wrapped
+# arg — `jsonb_array_elements(COALESCE(so.line_items,'[]'::jsonb))`
+# never matched `[a-zA-Z_][\w.]*`, so it was treated as ABSENT (no
+# scan), not unguarded → shipped green (chatbot_llm_fallback:256).
+# COALESCE / NULLIF / jsonb_strip_nulls guard SQL-NULL but NOT a JSON
+# SCALAR (`"x"`/`123`/`true`) → jsonb_array_elements still panics
+# "cannot extract elements from a scalar". The ONLY scalar-safe form
+# is the CASE-WHEN-jsonb_typeof wrapper (which does NOT start with
+# these funcs, so it never matches this regex = no false positive).
+_JSONB_ARRAY_WRAPPED_RE = re.compile(
+    r"jsonb_array_(?:elements|length)(?:_text)?\s*\(\s*"
+    r"(COALESCE|NULLIF|jsonb_strip_nulls)\b",
+    re.IGNORECASE,
+)
 
 
 def _scan_file(path: Path) -> list[str]:
@@ -180,6 +195,25 @@ def _scan_file(path: Path) -> list[str]:
                 f"typeof guard or CTE pre-filter — vulnerable to "
                 f"'cannot extract elements from a scalar' panic on "
                 f"JSON-null rows"
+            )
+
+        # Class 3: function-wrapped arg (COALESCE/NULLIF/strip_nulls)
+        # — the blindspot Class 1/2 silently missed. These funcs guard
+        # SQL-NULL but NOT a JSON scalar; only a jsonb_typeof='array'
+        # check (in a window) makes it scalar-safe. Flag if no such
+        # guard appears within ±6 lines (the statement).
+        for m in _JSONB_ARRAY_WRAPPED_RE.finditer(line):
+            wrap_fn = m.group(1)
+            window = "\n".join(lines[max(0, idx - 6):idx + 7])
+            if _JSONB_TYPEOF_RE.search(window):
+                continue  # a typeof='array' guard is present nearby
+            findings.append(
+                f"{path.relative_to(BACKEND)}:{idx + 1}: "
+                f"jsonb_array_*({wrap_fn}(...)) — {wrap_fn} guards "
+                f"SQL-NULL but NOT a JSON scalar; still panics 'cannot "
+                f"extract elements/length from a scalar'. Use "
+                f"CASE WHEN jsonb_typeof(col)='array' THEN col "
+                f"ELSE '[]'::jsonb END."
             )
     return findings
 
