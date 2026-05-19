@@ -861,6 +861,74 @@ def run_triage_generation(db: Session, max_per_cycle: int = 5) -> dict:
     return summary
 
 
+def reclassify_noise_incidents(db: Session, *, max_per_cycle: int = 1000) -> dict:
+    """Eventually-consistent noise reconciliation (born 2026-05-19).
+
+    The noise filter (`app.core.sentry_noise_filter`) is applied at
+    INTAKE (ingest_email Step 1b / ingest_webhook Step 2b) so a noise
+    message never gets stored — *while the running process has the
+    current filter code*. But a noise message stored during a
+    deploy-reload RACE WINDOW — the gap between a filter-change commit
+    and the PM2 reload that loads it into the long-lived worker
+    process (ground-truthed 2026-05-19: ~3.5h for #271, the c4e429e
+    class-3 regex committed 18:12 but agent-worker reloaded 21:49) —
+    lands as `triaged` and is NEVER re-evaluated, because nothing
+    re-applies the predicate to already-stored rows. The historical
+    remedy was a MANUAL one-shot UPDATE per filter commit (c4e429e
+    backfilled 32 rows by hand) — which itself missed any row stored
+    AFTER the one-shot ran (exactly how #271 slipped).
+
+    This makes "cleanup == filter" CONTINUOUS instead of a per-commit
+    manual UPDATE: re-run the single-SoT predicate (the SAME
+    `is_noise` / `is_shutdown_signal_type` the intake paths use — no
+    drift possible) over non-terminal rows every agent_worker cycle
+    and transition matches to `noise_dropped`. Self-heals #271, the
+    load-harness `_loadtest_` TLS rows, the warming-503 rows, and any
+    FUTURE deploy-race row on the next cycle — no manual intervention.
+
+    Invariants:
+      - **Idempotent**: `noise_dropped` is excluded by the status
+        filter, so a matched row is skipped on every subsequent pass →
+        converges in a single pass, no thrash.
+      - **Terminal-safe**: only `received` / `parsed` / `triaged` are
+        re-evaluated. `linked` / `resolved` / `resolved_by_fix` /
+        `ignored` / `parse_error` are NEVER reverted — an operator or
+        fix disposition (or a parse-failure inspect queue) always wins
+        over the noise predicate.
+      - **Non-vacuity-safe**: a real bug is by construction NOT an
+        `is_noise` match (locked by `test_real_operational_errors_
+        are_NOT_noise` + the class-4/5 non-vacuity tests), so no real
+        incident is ever swept.
+      - **Bounded**: `max_per_cycle` cap keeps the scan 10k-safe; the
+        idempotent convergence means a residual tail is cleared on the
+        next cycle (the table is small in practice, ~300 rows).
+    """
+    from app.core.sentry_noise_filter import is_noise, is_shutdown_signal_type
+
+    summary = {"scanned": 0, "reclassified": 0}
+    rows = (
+        db.query(SentryIncident)
+        .filter(SentryIncident.status.in_(("received", "parsed", "triaged")))
+        .order_by(SentryIncident.id.asc())
+        .limit(max_per_cycle)
+        .all()
+    )
+    for inc in rows:
+        summary["scanned"] += 1
+        # Mirror the intake predicate composition EXACTLY (ingest_email
+        # Step 1b: is_noise(f"{subject}\n{body}") OR is_shutdown_signal
+        # _type(subject/type)). raw_subject + error_title are the
+        # stored equivalents of the intake subject/title.
+        composite = f"{inc.raw_subject or ''}\n{inc.error_title or ''}"
+        if is_noise(composite) or is_shutdown_signal_type(inc.error_type):
+            inc.status = "noise_dropped"
+            summary["reclassified"] += 1
+
+    if summary["reclassified"]:
+        db.flush()
+    return summary
+
+
 # ---------------------------------------------------------------------------
 # Triage consumer — convert ready incidents into bugfix candidates
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 """sentry_noise_filter.py — central detection of expected operational
 noise that should be dropped from Sentry rather than counted as bugs.
 
-Three noise classes filtered here:
+Five noise classes filtered here:
 
 1. **Dev-misconfig secret-missing 500s** — pre-2026-05-05 fix
    string-matched a single message ("OPS_API_KEY not configured").
@@ -50,6 +50,40 @@ Three noise classes filtered here:
    only (not exception type) — a generic `OperationalError` from a
    SQL/schema bug (`column ... does not exist`, `deadlock detected`,
    `duplicate key value`) does NOT match and still surfaces.
+
+4. **Synthetic load-harness shop TLS noise** (born 2026-05-19) —
+   `scripts/load_test_harness.py` INSERTs up to 10 000 synthetic
+   `_loadtest_NNNNN.myshopify.com` merchants with `install_status=
+   'active'` for the duration of a 10k load run. While the run is in
+   flight (before the `finally` teardown deletes them) EVERY active-
+   merchant-iterating production worker (`webhook_health_task`,
+   `shopify_client` product fetches, etc.) calls Shopify for each fake
+   shop → the TLS handshake fails with `[SSL: CERTIFICATE_VERIFY_FAILED]
+   ... Hostname mismatch` (the host has no valid cert for a
+   `_loadtest_*` subdomain). Ground-truthed 2026-05-19: 26 such rows,
+   recurrence_count up to 72, were the dominant driver tripping the
+   capillary `sentry_incidents` probe YELLOW. Doubly-anchored: requires
+   BOTH a synthetic `_loadtest_\\d+\\.myshopify\\.com` host AND a
+   TLS-cert-verify-failure phrase. A real merchant's shop_domain never
+   contains `_loadtest_` (Shopify never issues such subdomains; the
+   harness itself refuses to run if real `_loadtest_` merchants exist;
+   DB-proven 0/4 real merchants match) so a genuine merchant TLS error
+   to a real `*.myshopify.com` host STILL surfaces. Makes the load rig
+   self-cleaning at the Sentry layer — no per-run manual hygiene.
+
+5. **By-design dashboard warming-503** (born 2026-05-19) — the
+   `b28dc07` Redis-down defence-in-depth raises
+   `HTTPException(503, "dashboard warming — retry shortly")` as a
+   deterministic graceful-degradation response when a cold-build is
+   shed under load / Redis blip. The client retries; the merchant
+   never sees an error. Same honest tradeoff as classes 2-3: counting
+   a purpose-built degradation response as a "bug" only buries the
+   real signal under self-inflicted noise. A genuine warm-path
+   regression's PRIMARY signal is the dedicated `/system/health`
+   probe + the capillary `system_health` / pool-timeout dimensions
+   (loud, immediate), NOT a 24h incident counter. Matched on the
+   exact purpose-built phrase only — a generic `HTTPException: 500`
+   or any other 503 does NOT match and still surfaces.
 
 Two consumers:
 - `app/core/sentry_init.py::_before_send` (outbound — drop at
@@ -142,11 +176,39 @@ _DB_CONN_DROP_NOISE_RE = re.compile(
 )
 
 
+# Class 4: synthetic load-harness shop TLS noise (born 2026-05-19).
+# Doubly-anchored — BOTH a synthetic `_loadtest_<digits>.myshopify.com`
+# host AND a TLS-cert-verify-failure phrase must be present. `_loadtest_`
+# is the `load_test_harness.py` default `_SHOP_PREFIX`; a real Shopify
+# merchant domain never contains it (DB-proven 0/4) so a genuine
+# merchant TLS error to a real `*.myshopify.com` host does NOT match.
+# Suffix is `[a-z0-9_]+` not `\d+`: the harness default is
+# `_loadtest_00019` but rigs use named cold-shops (`_loadtest_cold01`,
+# the J1 worker-cycle rig). `_loadtest_` itself is the discriminator
+# (DB-proven 0/4 real merchants); the alnum suffix just bounds it to a
+# shop token. Still doubly-anchored with the TLS phrase below.
+_LOADTEST_SHOP_RE = re.compile(r"_loadtest_[a-z0-9_]+\.myshopify\.com")
+_TLS_CERT_FAIL_RE = re.compile(
+    r"CERTIFICATE_VERIFY_FAILED|certificate verify failed|Hostname mismatch",
+    re.IGNORECASE,
+)
+
+# Class 5: by-design dashboard warming-503 (born 2026-05-19). The exact
+# purpose-built `b28dc07` graceful-degradation phrase. Tolerant of
+# em-dash / en-dash / hyphen because capture paths vary in how they
+# normalize the `—`; case-insensitive. A generic HTTPException 500/503
+# does NOT contain this phrase so it still surfaces.
+_WARMING_503_RE = re.compile(
+    r"dashboard warming\s*[—–-]\s*retry shortly",
+    re.IGNORECASE,
+)
+
+
 def is_noise(message: str | None) -> bool:
     """Return True iff the message looks like expected operational noise
     (suitable for filtering before Sentry capture).
 
-    Three noise classes covered:
+    Five noise classes covered:
       1. Dev-misconfig secret-missing 500s (regex-matched).
       2. Worker graceful-shutdown signal exceptions (matched against
          `_SIGNAL_SHUTDOWN_NOISE` via `_matches_shutdown_signal` — both
@@ -154,16 +216,26 @@ def is_noise(message: str | None) -> bool:
       3. Backend/DB restart connection-drop OperationalError (matched
          by message SHAPE via `_DB_CONN_DROP_NOISE_RE` — NOT exception
          type, so a real SQL/schema-bug OperationalError still surfaces).
+      4. Synthetic load-harness `_loadtest_*` shop TLS failures
+         (doubly-anchored: synthetic-shop host AND cert-fail phrase —
+         a real merchant TLS error still surfaces).
+      5. By-design dashboard warming-503 (exact purpose-built phrase —
+         a generic 500/503 still surfaces).
 
     Conservative by design: returns False on None/empty input or any
-    string that doesn't match. Classes 1-2 are case-sensitive; class 3
-    is case-insensitive on fixed libpq phrasings."""
+    string that doesn't match. Classes 1-2 are case-sensitive; classes
+    3-5 are case-insensitive on fixed phrasings."""
     if not message or not isinstance(message, str):
         return False
     # Fast-path: signal-class shutdown exceptions (bare OR Class:msg form)
     if _matches_shutdown_signal(message):
         return True
     if _DB_CONN_DROP_NOISE_RE.search(message):
+        return True
+    # Class 4: BOTH anchors required (synthetic host + TLS cert failure).
+    if _LOADTEST_SHOP_RE.search(message) and _TLS_CERT_FAIL_RE.search(message):
+        return True
+    if _WARMING_503_RE.search(message):
         return True
     return bool(_NOISE_RE.search(message))
 

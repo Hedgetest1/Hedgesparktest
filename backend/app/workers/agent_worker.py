@@ -1316,11 +1316,26 @@ def _run_sentry_triage():
 
     db = SessionLocal()
     try:
-        from app.services.sentry_triage import run_triage_generation
+        from app.services.sentry_triage import (
+            reclassify_noise_incidents,
+            run_triage_generation,
+        )
         result = run_triage_generation(db)
+        # Eventually-consistent noise reconciliation: re-apply the
+        # single-SoT noise predicate to non-terminal rows so any
+        # incident stored during a deploy→PM2-reload race window is
+        # self-healed to noise_dropped (replaces the manual one-shot
+        # UPDATE-per-commit that itself missed #271). Born 2026-05-19.
+        recl = reclassify_noise_incidents(db)
         db.commit()
         if result["generated"] > 0 or result["errors"] > 0:
             log(f"sentry_triage: generated={result['generated']} errors={result['errors']}")
+        if recl["reclassified"] > 0:
+            log(
+                f"sentry_triage: reclassified {recl['reclassified']} "
+                f"stale-noise incidents → noise_dropped "
+                f"(scanned {recl['scanned']})"
+            )
     except Exception as exc:
         log(f"sentry_triage generation error (non-fatal): {exc}")
         db.rollback()

@@ -165,6 +165,10 @@ def cleanup_merchants() -> int:
             "execution_baselines",
             "merchant_email_stats",
             "merchant_emails",
+            # audit_log: a synthetic bi_query.execute burst leaves rows
+            # here too (Agent-found 2026-05-19: 250 stale rows from one
+            # run). Inert (no worker iterates it) but DB-of-record drift.
+            "audit_log",
         ):
             try:
                 db.execute(
@@ -178,6 +182,30 @@ def cleanup_merchants() -> int:
             {"p": like_pattern},
         )
         db.commit()
+        # Redis teardown: a 10k run leaves ~10 000 per-shop keys
+        # (e.g. hs:rars_history:v1:_loadtest_*) with multi-month TTLs
+        # (Agent-found 2026-05-19: 10 000 keys @ ~115d TTL). Inert
+        # (no worker SCANs that family) but unbounded RAM debt across
+        # repeated runs. SCAN (not KEYS) for 10k-safety; best-effort.
+        try:
+            from app.core.redis_client import _client
+
+            r = _client()
+            if r is not None:
+                deleted = 0
+                for pat in (f"*{_SHOP_PREFIX}*",):
+                    cursor = 0
+                    while True:
+                        cursor, batch = r.scan(cursor, match=pat, count=500)
+                        if batch:
+                            r.delete(*batch)
+                            deleted += len(batch)
+                        if cursor == 0:
+                            break
+                if deleted:
+                    print(f"  cleanup: deleted {deleted} _loadtest_ Redis keys")
+        except Exception:
+            pass  # Redis optional / best-effort — never block teardown
         return result.rowcount
     finally:
         db.close()

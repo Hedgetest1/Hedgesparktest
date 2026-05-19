@@ -300,3 +300,115 @@ class TestDbRestartConnectionDropNoise:
         assert is_noise(
             "Klaviyo connection verified for shop x.myshopify.com"
         ) is False
+
+
+# ---------------------------------------------------------------------------
+# Class 4 — synthetic load-harness shop TLS noise (born 2026-05-19)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadtestShopTlsNoise:
+    """Ground-truthed 2026-05-19: 26 incident rows (recurrence up to 72)
+    of `shopify_client: network error ... shop=_loadtest_NNNNN.myshopify
+    .com: [SSL: CERTIFICATE_VERIFY_FAILED] ... Hostname mismatch` — the
+    dominant driver tripping the capillary `sentry_incidents` probe
+    YELLOW. Generated DURING a load_test_harness run when production
+    workers race the synthetic merchants before teardown. Doubly-
+    anchored: synthetic-shop host AND TLS-cert-fail phrase."""
+
+    def test_exact_ground_truthed_shopify_client_string_is_noise(self):
+        assert is_noise(
+            "shopify_client: network error GET products.json "
+            "shop=_loadtest_00019.myshopify.com: [SSL: "
+            "CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+            "Hostname mismatch, certificate is not valid for "
+            "'_loadtest_00019.myshopify.com'. (_ssl.c:1000) — exhausted 3"
+        ) is True
+
+    def test_exact_ground_truthed_webhook_health_string_is_noise(self):
+        assert is_noise(
+            "webhook_health: API error shop=_loadtest_00197.myshopify.com: "
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+            "Hostname mismatch, certificate is not valid for "
+            "'_loadtest_00197.myshopify.com'. (_ssl.c:1000)"
+        ) is True
+
+    def test_real_merchant_tls_failure_is_NOT_noise(self):
+        """NON-VACUITY / no-false-drop. A genuine TLS error to a REAL
+        merchant shop must STILL surface — only the `_loadtest_`
+        synthetic host is filtered. This is the safety anchor: a real
+        Shopify cert/TLS regression is a real incident."""
+        assert is_noise(
+            "shopify_client: network error GET products.json "
+            "shop=realmerchant.myshopify.com: [SSL: "
+            "CERTIFICATE_VERIFY_FAILED] certificate verify failed "
+            "(_ssl.c:1000)"
+        ) is False
+        assert is_noise(
+            "webhook_health: API error shop=acme-store.myshopify.com: "
+            "[SSL: CERTIFICATE_VERIFY_FAILED] Hostname mismatch"
+        ) is False
+
+    def test_loadtest_host_without_cert_phrase_is_NOT_noise(self):
+        """Both anchors required. A `_loadtest_` shop in a message that
+        is NOT a TLS-cert failure (e.g. a real logic bug surfaced while
+        a load run happened to be in flight) must STILL surface — we do
+        not blanket-suppress everything mentioning `_loadtest_`."""
+        assert is_noise(
+            "KeyError: 'revenue' for shop=_loadtest_00001.myshopify.com"
+        ) is False
+        assert is_noise(
+            "AttributeError: 'NoneType' has no attribute 'total' "
+            "shop=_loadtest_00042.myshopify.com"
+        ) is False
+
+    def test_cert_phrase_without_loadtest_host_is_NOT_noise(self):
+        """The other anchor: a generic cert-verify phrase WITHOUT a
+        synthetic host must not match (could be a real infra issue)."""
+        assert is_noise(
+            "requests.exceptions.SSLError: CERTIFICATE_VERIFY_FAILED "
+            "for api.anthropic.com"
+        ) is False
+
+
+# ---------------------------------------------------------------------------
+# Class 5 — by-design dashboard warming-503 (born 2026-05-19)
+# ---------------------------------------------------------------------------
+
+
+class TestDashboardWarming503Noise:
+    """The `b28dc07` Redis-down defence raises HTTPException(503,
+    "dashboard warming — retry shortly") as a deterministic graceful
+    degradation — the client retries, the merchant never sees an error.
+    Same honest tradeoff as classes 2-3: a purpose-built degradation
+    response is not a bug. Ground-truthed 2026-05-19: rows #255/#256."""
+
+    def test_exact_ground_truthed_string_is_noise(self):
+        # Sentry issue.title form (em-dash, the source string at
+        # app/api/dashboard.py:1149).
+        assert is_noise(
+            "HTTPException: dashboard warming — retry shortly"
+        ) is True
+        # Bare detail form
+        assert is_noise("dashboard warming — retry shortly") is True
+
+    def test_dash_variants_are_noise(self):
+        # Capture paths vary in how they normalize the em-dash.
+        assert is_noise("dashboard warming - retry shortly") is True
+        assert is_noise("dashboard warming – retry shortly") is True
+        assert is_noise("Dashboard Warming — Retry Shortly") is True
+
+    def test_generic_5xx_http_exception_is_NOT_noise(self):
+        """NON-VACUITY / no-false-drop. A generic HTTPException or any
+        other 503 must STILL surface — only the exact purpose-built
+        warming phrase is filtered. A real warm-path regression's
+        signal is /system/health, not this counter; but a DIFFERENT
+        5xx is a real incident."""
+        assert is_noise("HTTPException: 500 Internal Server Error") is False
+        assert is_noise("HTTPException: 503 Service Unavailable") is False
+        assert is_noise(
+            "HTTPException: merchant not found"
+        ) is False
+        assert is_noise(
+            "HTTPException: rate limit exceeded — retry shortly"
+        ) is False
