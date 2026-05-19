@@ -57,10 +57,16 @@ def evaluate_pending_outcomes(db: Session) -> dict:
         .all()
     )
 
+    from app.core.database import savepoint_scope
     for outcome in pending:
         try:
-            _evaluate_one(db, outcome, summary)
-            db.flush()
+            # SAVEPOINT-per-outcome (write_no_rollback class close
+            # 2026-05-19): flush-per-outcome, caller commits — a failing
+            # outcome must roll back only itself, not poison the shared
+            # session for the remaining outcomes + the caller's commit.
+            with savepoint_scope(db):
+                _evaluate_one(db, outcome, summary)
+                db.flush()
         except Exception as exc:
             log.warning("action_learning: error evaluating outcome %d: %s", outcome.id, exc)
 

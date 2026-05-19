@@ -378,6 +378,7 @@ def compute_churn_report(db: Session) -> dict:
         LIMIT 500
     """)).fetchall()
 
+    from app.core.database import rollback_quiet
     results = []
     for row in merchants:
         try:
@@ -386,6 +387,12 @@ def compute_churn_report(db: Session) -> dict:
                 results.append(score)
         except Exception as exc:
             log.warning("Churn score failed for %s: %s", row[0], exc)
+            # write_no_rollback class close 2026-05-19: read-only
+            # scoring loop, but a conn-death / PendingRollbackError
+            # mid-loop (the sentry #239 trigger class) would poison the
+            # shared session for every remaining merchant + the caller
+            # (merchant_brain.py:1339 → whole Brain Vero cycle). Un-poison.
+            rollback_quiet(db)
 
     results.sort(key=lambda r: r["churn_risk_score"], reverse=True)
 

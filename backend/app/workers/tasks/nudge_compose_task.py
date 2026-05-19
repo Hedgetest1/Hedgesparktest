@@ -60,46 +60,52 @@ def run(db: Session) -> int:
         return 0
 
     upgraded = 0
+    from app.core.database import savepoint_scope
     for nudge in pending:
         try:
-            product = (
-                db.query(Product)
-                .filter_by(shop_domain=nudge.shop_domain, product_url=nudge.product_url)
-                .first()
-            )
-            product_title = (
-                product.title.strip() if product and product.title
-                else nudge.product_url.replace("/products/", "").replace("-", " ").title()
-            )
-
-            signals = {
-                "unique_visitors_24h": nudge.visitor_count or 0,
-                "action_type": nudge.action_type,
-            }
-
-            variants, meta = asyncio.run(
-                compose_nudge_variants(
-                    product_title=product_title,
-                    product_url=nudge.product_url,
-                    signals=signals,
-                    data_window_hours=72,
+            # SAVEPOINT-per-nudge (write_no_rollback class close
+            # 2026-05-19): per-nudge ORM mutation + a SINGLE post-loop
+            # db.flush() — a failing nudge must roll back only itself,
+            # not poison the shared session for the rest of the batch.
+            with savepoint_scope(db):
+                product = (
+                    db.query(Product)
+                    .filter_by(shop_domain=nudge.shop_domain, product_url=nudge.product_url)
+                    .first()
                 )
-            )
-
-            if variants and len(variants) >= 2:
-                primary = variants[0]
-                nudge.copy_variant = primary.get("variant_name", nudge.copy_variant)
-                nudge.copy_config = _json.dumps(primary.get("copy_config", {}))
-                nudge.copy_variants = _json.dumps(variants)
-                nudge.ai_compose_pending = False
-                upgraded += 1
-                _log.info(
-                    "nudge_compose: upgraded nudge_id=%s shop=%s variants=%d fallback=%s",
-                    nudge.id, nudge.shop_domain, len(variants), meta.get("fallback_used"),
+                product_title = (
+                    product.title.strip() if product and product.title
+                    else nudge.product_url.replace("/products/", "").replace("-", " ").title()
                 )
-            else:
-                nudge.ai_compose_pending = False
-                _log.info("nudge_compose: no variants for nudge_id=%s, flag cleared", nudge.id)
+
+                signals = {
+                    "unique_visitors_24h": nudge.visitor_count or 0,
+                    "action_type": nudge.action_type,
+                }
+
+                variants, meta = asyncio.run(
+                    compose_nudge_variants(
+                        product_title=product_title,
+                        product_url=nudge.product_url,
+                        signals=signals,
+                        data_window_hours=72,
+                    )
+                )
+
+                if variants and len(variants) >= 2:
+                    primary = variants[0]
+                    nudge.copy_variant = primary.get("variant_name", nudge.copy_variant)
+                    nudge.copy_config = _json.dumps(primary.get("copy_config", {}))
+                    nudge.copy_variants = _json.dumps(variants)
+                    nudge.ai_compose_pending = False
+                    upgraded += 1
+                    _log.info(
+                        "nudge_compose: upgraded nudge_id=%s shop=%s variants=%d fallback=%s",
+                        nudge.id, nudge.shop_domain, len(variants), meta.get("fallback_used"),
+                    )
+                else:
+                    nudge.ai_compose_pending = False
+                    _log.info("nudge_compose: no variants for nudge_id=%s, flag cleared", nudge.id)
         except Exception as exc:
             _log.warning("nudge_compose: failed for nudge_id=%s err=%s: %s",
                          nudge.id, type(exc).__name__, exc)

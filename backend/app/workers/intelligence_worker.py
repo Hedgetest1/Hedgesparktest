@@ -17,7 +17,7 @@ set_worker_context(worker_name="intelligence_worker")
 
 from sqlalchemy.orm import sessionmaker
 
-from app.core.database import engine
+from app.core.database import engine, savepoint_scope
 from app.models.visitor_product_state import VisitorProductState
 from app.models.worker_log import WorkerLog
 from app.models.worker_state import WorkerState
@@ -239,8 +239,14 @@ def run_cycle():
             # forever; the cursor advances past it next cycle.
             _last_pair = (shop_domain, product_url)
             try:
-                with _worker_scope("intelligence_worker.update_opportunity", shop_domain):
-                    update_product_opportunity(db, product_url, shop_domain)
+                # SAVEPOINT-per-pair (write_no_rollback class close
+                # 2026-05-19): update_product_opportunity flushes but
+                # the loop commits LATER — a failing pair must roll back
+                # only itself, not poison the shared session for the
+                # remaining pairs + the deferred commit.
+                with savepoint_scope(db):
+                    with _worker_scope("intelligence_worker.update_opportunity", shop_domain):
+                        update_product_opportunity(db, product_url, shop_domain)
                 log(f"updated opportunity for {shop_domain} | {product_url}")
                 rows_written += 1
                 shops_seen.add(shop_domain)

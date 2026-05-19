@@ -204,6 +204,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# write_no_rollback class regression guard (audit_db_session_rollback).
+# Locks the 14 sites root-fixed across the 2026-05-19 sweep (§0 revenue +
+# safety-net + 9 worker-loop siblings) so a refactor can't strip a
+# savepoint_scope / rollback_quiet guard and silently re-open the
+# poisoned-shared-session class. Generic any-new-loop AST detector is the
+# specced sprint deliverable (project_db_session_rollback_class_sweep).
+# ---------------------------------------------------------------------------
+step "write_no_rollback class guard (audit_db_session_rollback.py)"
+if "$PY" scripts/audit_db_session_rollback.py > /tmp/preflight_dbsess_rb.log 2>&1; then
+    ok "write_no_rollback: all 14 class guards intact"
+else
+    bad "write_no_rollback-class regression — see /tmp/preflight_dbsess_rb.log"
+    tail -20 /tmp/preflight_dbsess_rb.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2b''. GDPR receipt-only contract — `gdpr_requests.result_summary` must
 # never carry raw PII (events/orders/visitor_state/nudge_events arrays).
 # Born 2026-05-14 (TIER_2) — Art. 5(1)(c) data minimisation enforcement.

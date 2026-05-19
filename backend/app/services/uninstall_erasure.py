@@ -163,27 +163,36 @@ def run_uninstall_erasure_watchdog(db: Session) -> dict:
         return report
 
     report["scanned"] = len(rows)
+    from app.core.database import savepoint_scope
     for merchant in rows:
         shop = merchant.shop_domain
         if _has_recent_redact_request(db, shop):
             report["already_redacted"] += 1
             continue
         try:
-            new_req = GdprRequest(
-                request_type="shop_redact",
-                shop_domain=shop,
-                status="pending",
-                payload='{"created_by":"uninstall_erasure_watchdog"}',
-            )
-            db.add(new_req)
-            db.flush()
-            _emit_self_heal_alert(db, shop)
-            report["self_healed"] += 1
-            log.warning(
-                "uninstall_erasure: SELF-HEALED shop=%s — Shopify did not "
-                "deliver shop/redact within %dh grace",
-                shop, _GRACE_PERIOD_HOURS,
-            )
+            # SAVEPOINT-per-merchant (write_no_rollback class close
+            # 2026-05-19). GDPR Art.17: this loop flushes a GdprRequest
+            # per merchant then a SINGLE post-loop commit (line ~195). A
+            # bare rollback on a failing merchant would discard EVERY
+            # prior merchant's queued erasure request → regulatory
+            # exposure. The savepoint rolls back only the failing
+            # merchant; the rest still commit.
+            with savepoint_scope(db):
+                new_req = GdprRequest(
+                    request_type="shop_redact",
+                    shop_domain=shop,
+                    status="pending",
+                    payload='{"created_by":"uninstall_erasure_watchdog"}',
+                )
+                db.add(new_req)
+                db.flush()
+                _emit_self_heal_alert(db, shop)
+                report["self_healed"] += 1
+                log.warning(
+                    "uninstall_erasure: SELF-HEALED shop=%s — Shopify did not "
+                    "deliver shop/redact within %dh grace",
+                    shop, _GRACE_PERIOD_HOURS,
+                )
         except Exception as exc:
             log.warning(
                 "uninstall_erasure: failed to create redact request for %s: %s",

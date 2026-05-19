@@ -226,6 +226,7 @@ def run_mature_predictions(db: Session, *, limit: int = 200) -> dict:
 
     matured = 0
     skipped = 0
+    from app.core.database import savepoint_scope
     for row in rows:
         rec_id, shop, metric, pred_date, horizon, ccy = row
         actual = _actual_revenue(db, shop, pred_date, horizon, ccy)
@@ -236,20 +237,24 @@ def run_mature_predictions(db: Session, *, limit: int = 200) -> dict:
             # Explicit shop_domain in the UPDATE WHERE — belt-and-suspenders
             # tenant isolation. Matches the shop from the row we selected
             # above. Pairs with the cross-tenant disclaimer on the SELECT.
-            db.execute(
-                text(
-                    """
-                    UPDATE prediction_log
-                    SET actual_value = :actual,
-                        measured_at = :ts
-                    WHERE id = :id
-                      AND shop_domain = :shop
-                      AND actual_value IS NULL
-                    """
-                ),
-                {"actual": round(actual, 2), "ts": _now(), "id": rec_id, "shop": shop},
-            )
-            matured += 1
+            # SAVEPOINT-per-row (write_no_rollback close 2026-05-19):
+            # the caller commits — a failing UPDATE must roll back only
+            # itself, not poison the session for the remaining rows.
+            with savepoint_scope(db):
+                db.execute(
+                    text(
+                        """
+                        UPDATE prediction_log
+                        SET actual_value = :actual,
+                            measured_at = :ts
+                        WHERE id = :id
+                          AND shop_domain = :shop
+                          AND actual_value IS NULL
+                        """
+                    ),
+                    {"actual": round(actual, 2), "ts": _now(), "id": rec_id, "shop": shop},
+                )
+                matured += 1
         except Exception as exc:
             log.warning("prediction_log: update failed id=%s: %s", rec_id, exc)
             skipped += 1

@@ -171,6 +171,60 @@ SessionLocal = sessionmaker(
 Base = declarative_base()
 
 
+from contextlib import contextmanager as _contextmanager
+
+
+@_contextmanager
+def savepoint_scope(session):
+    """Isolate ONE loop-iteration's DB work in a SAVEPOINT so a failing
+    iteration rolls back only its OWN changes and cannot poison the
+    shared session for subsequent iterations or the post-loop commit.
+
+    The SAVEPOINT half of the write_no_rollback class close (born
+    2026-05-19, project_db_session_rollback_class_sweep_2026_05_19).
+    Use for BATCH loops — per-row flush + a single post-loop / per-shop
+    commit — where a bare `rollback_quiet` would discard prior good
+    uncommitted rows. For loops that already commit per-iteration (the
+    committed row is durable), use `rollback_quiet(session)` in the
+    handler instead; do NOT wrap a body that calls full
+    `session.commit()` (a full commit dissolves the SAVEPOINT).
+
+    Idiom (the handler still logs+continues; only DB isolation added):
+
+        for item in items:
+            try:
+                with savepoint_scope(db):
+                    ... existing per-item work (flush, no full commit) ...
+            except Exception as exc:
+                log...(exc)
+                continue   # session is NOT poisoned
+
+    On success the SAVEPOINT is released (changes stay in the outer txn,
+    persisted by the caller's post-loop commit). On error it is rolled
+    back to the pre-iteration point and the original exception
+    re-raised for the caller's existing handler. Never leaks a poisoned
+    session: a failed rollback is swallowed (the conn is already dead;
+    the next cycle / request scope replaces it)."""
+    nested = session.begin_nested()
+    try:
+        yield
+    except Exception:
+        try:
+            nested.rollback()
+        except Exception:
+            pass  # SILENT-EXCEPT-OK: savepoint rollback best-effort; a failed one = dead conn the next cycle/request scope replaces. Original exception re-raised below for the caller's handler.
+        raise
+    else:
+        try:
+            nested.commit()
+        except Exception:
+            try:
+                nested.rollback()
+            except Exception:
+                pass  # SILENT-EXCEPT-OK: see above — best-effort; original error surfaces via the raise below.
+            raise
+
+
 def rollback_quiet(session) -> None:
     """Best-effort un-poison of a SQLAlchemy session after a CAUGHT DB
     error, so the next operation that reuses the SAME session isn't

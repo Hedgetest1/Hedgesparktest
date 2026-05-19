@@ -323,6 +323,13 @@ def _process_product(
       "no_hot_visitors" — hot segment is empty
       "error"           — exception during computation
     """
+    # write_no_rollback class close 2026-05-19: every except below
+    # that catches a DB-touching failure un-poisons the shared session
+    # (run_cycle commits per-shop ~line 580; without this a poisoned
+    # product cascades to every remaining product+shop in the cycle).
+    # Bounded blast: this is a 5-min cursor-based periodic monitor —
+    # a degraded shop-cycle self-heals on the next cycle.
+    from app.core.database import rollback_quiet
     # 1. Compute hot segment state
     try:
         report = segment_product_visitors(
@@ -333,6 +340,7 @@ def _process_product(
         )
     except Exception as exc:
         log(f"segment query error shop={shop_domain} product={product_url}: {exc}")
+        rollback_quiet(db)
         return "error"
 
     hot  = report.get("hot", {})
@@ -382,6 +390,7 @@ def _process_product(
             )
     except Exception as exc:
         log(f"inventory fetch error shop={shop_domain} product={product_url}: {exc} (non-fatal)")
+        rollback_quiet(db)  # non-fatal path falls through to create_task — un-poison first
 
     # 6. Build candidate dict for task creation
     urgency = round(min(1.0, visitor_count / 20.0), 4)
@@ -413,6 +422,7 @@ def _process_product(
         )
     except Exception as exc:
         log(f"create_task error shop={shop_domain} product={product_url}: {exc}")
+        rollback_quiet(db)
         return "error"
 
     if task_created:
@@ -457,6 +467,7 @@ def _process_product(
             f"nudge create/refresh error shop={shop_domain} "
             f"product={product_url}: {exc} (task still created, non-fatal)"
         )
+        rollback_quiet(db)  # non-fatal path falls through to the per-shop commit — un-poison first
 
     return "created" if task_created else "refreshed"
 

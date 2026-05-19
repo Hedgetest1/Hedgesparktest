@@ -138,51 +138,58 @@ def compute_pending_deltas(db: Session) -> int:
     )
 
     computed = 0
+    from app.core.database import savepoint_scope
     for snap in pending:
         try:
-            current = _product_metrics_now(db, snap.shop_domain, snap.product_url)
+            # SAVEPOINT-per-snap (write_no_rollback class close
+            # 2026-05-19): per-snap flush + a SINGLE post-loop
+            # db.commit() — a failing snap must roll back only itself,
+            # not poison the session for the rest of the batch (which
+            # would lose EVERY computed delta at the post-loop commit).
+            with savepoint_scope(db):
+                current = _product_metrics_now(db, snap.shop_domain, snap.product_url)
 
-            snap.delta_cvr = round(current["cvr"] - (snap.baseline_cvr or 0), 4)
-            snap.delta_atc_rate = round(current["atc_rate"] - (snap.baseline_atc_rate or 0), 4)
-            snap.delta_revenue_7d = round(current["revenue"] - (snap.baseline_revenue_7d or 0), 2)
-            snap.delta_visitors_7d = current["visitors"] - (snap.baseline_visitors_7d or 0)
-            snap.delta_orders_7d = current["orders"] - (snap.baseline_orders_7d or 0)
-            snap.delta_computed = True
-            snap.delta_computed_at = now
+                snap.delta_cvr = round(current["cvr"] - (snap.baseline_cvr or 0), 4)
+                snap.delta_atc_rate = round(current["atc_rate"] - (snap.baseline_atc_rate or 0), 4)
+                snap.delta_revenue_7d = round(current["revenue"] - (snap.baseline_revenue_7d or 0), 2)
+                snap.delta_visitors_7d = current["visitors"] - (snap.baseline_visitors_7d or 0)
+                snap.delta_orders_7d = current["orders"] - (snap.baseline_orders_7d or 0)
+                snap.delta_computed = True
+                snap.delta_computed_at = now
 
-            # Classify outcome
-            if snap.delta_cvr > 0.005:  # >0.5pp improvement
-                snap.outcome = "improved"
-            elif snap.delta_cvr < -0.005:
-                snap.outcome = "declined"
-            else:
-                snap.outcome = "stable"
+                # Classify outcome
+                if snap.delta_cvr > 0.005:  # >0.5pp improvement
+                    snap.outcome = "improved"
+                elif snap.delta_cvr < -0.005:
+                    snap.outcome = "declined"
+                else:
+                    snap.outcome = "stable"
 
-            # Human summary
-            if snap.outcome == "improved":
-                base_pct = round((snap.baseline_cvr or 0) * 100, 1)
-                curr_pct = round(current["cvr"] * 100, 1)
-                rev_delta = snap.delta_revenue_7d or 0
-                snap.summary = (
-                    f"Conversion rate improved from {base_pct}% to {curr_pct}%."
-                    + (f" Revenue +${rev_delta:,.2f} vs prior week." if rev_delta > 0 else "")
+                # Human summary
+                if snap.outcome == "improved":
+                    base_pct = round((snap.baseline_cvr or 0) * 100, 1)
+                    curr_pct = round(current["cvr"] * 100, 1)
+                    rev_delta = snap.delta_revenue_7d or 0
+                    snap.summary = (
+                        f"Conversion rate improved from {base_pct}% to {curr_pct}%."
+                        + (f" Revenue +${rev_delta:,.2f} vs prior week." if rev_delta > 0 else "")
+                    )
+                elif snap.outcome == "declined":
+                    base_pct = round((snap.baseline_cvr or 0) * 100, 1)
+                    curr_pct = round(current["cvr"] * 100, 1)
+                    snap.summary = f"Conversion rate changed from {base_pct}% to {curr_pct}%."
+                else:
+                    snap.summary = "Metrics remained stable after the change."
+
+                db.flush()
+                computed += 1
+                log.info(
+                    "action_proof: delta computed snap_id=%d shop=%s product=%s outcome=%s",
+                    snap.id, snap.shop_domain, snap.product_url, snap.outcome,
                 )
-            elif snap.outcome == "declined":
-                base_pct = round((snap.baseline_cvr or 0) * 100, 1)
-                curr_pct = round(current["cvr"] * 100, 1)
-                snap.summary = f"Conversion rate changed from {base_pct}% to {curr_pct}%."
-            else:
-                snap.summary = "Metrics remained stable after the change."
 
-            db.flush()
-            computed += 1
-            log.info(
-                "action_proof: delta computed snap_id=%d shop=%s product=%s outcome=%s",
-                snap.id, snap.shop_domain, snap.product_url, snap.outcome,
-            )
-
-            # Proof celebration emails removed — execution email flows
-            # now go through Klaviyo (see sync_execution_to_klaviyo).
+                # Proof celebration emails removed — execution email flows
+                # now go through Klaviyo (see sync_execution_to_klaviyo).
         except Exception as exc:
             log.error("action_proof: delta computation failed snap_id=%d: %s", snap.id, exc)
 
