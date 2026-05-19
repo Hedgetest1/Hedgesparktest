@@ -206,3 +206,69 @@ def test_get_regulatory_summary():
     assert summary["total_rules"] >= 20
     assert "GDPR" in summary["regulations_covered"]
     assert isinstance(summary["rules_per_regulation"], dict)
+
+
+def test_regulatory_watch_audit_log_raise_no_phantom_alert(db):
+    """write_no_rollback class close 2026-05-19c — Finding-2 residual
+    (Agent ab6d901947b397f8a). When write_audit_log raises AFTER the
+    OpsAlert flush (its own un-guarded db.flush — a transient DB
+    error), the per-rule savepoint rolls back the OpsAlert. The report
+    MUST be truthful: the compliance gap is recorded (never lost —
+    Finding-2 original concern) but new_alerts stays 0 (no alert
+    persisted). This is the INTENTIONAL §0 correction of the HEAD
+    original, which counted new_alerts=+1 then full-rolled-back the
+    OpsAlert (a report claiming an alert its own rollback destroyed) —
+    truthful > bug-compatible. Also proves no cascade (session clean).
+    """
+    from sqlalchemy import text
+    from app.services.regulatory_watch import (
+        run_regulatory_audit, REGULATORY_RULES, RegRule,
+    )
+    from app.models.ops_alert import OpsAlert
+
+    fake_rule = RegRule(
+        rule_id="TEST-F2-AUDITLOG-RAISE",
+        regulation="GDPR",
+        article="Art.5",
+        description="synthetic non-compliant rule — write_audit_log-raise drift path",
+        check_fn=lambda _db: False,  # non-compliant → new_alert branch
+        suggested_action="code_change",
+        version=1,
+    )
+    source_tag = "regulatory:TEST-F2-AUDITLOG-RAISE:v1"
+    # Hermetic: clear any stale row for this synthetic source first so
+    # the later `is None` assertion cannot flip on a re-run or a
+    # concurrent writer (audit_test_hermeticity contract).
+    db.query(OpsAlert).filter(OpsAlert.source == source_tag).delete()
+    db.flush()
+    original_rules = REGULATORY_RULES.copy()
+    REGULATORY_RULES.clear()
+    REGULATORY_RULES.append(fake_rule)
+    try:
+        with patch("app.services.regulatory_watch._redis", return_value=None), \
+             patch("app.services.audit.write_audit_log",
+                   side_effect=RuntimeError("simulated audit-row flush failure")):
+            report = run_regulatory_audit(db)
+
+        assert report.get("skipped") is not True
+        # Gap is NEVER lost — recorded unconditionally before the
+        # savepoint (Finding-2 original drift, fixed):
+        assert report["failed"] == 1
+        assert any(
+            g["rule_id"] == "TEST-F2-AUDITLOG-RAISE" for g in report["gaps"]
+        )
+        # TRUTHFUL count: write_audit_log raised → savepoint rolled
+        # back the OpsAlert → it did NOT persist → new_alerts == 0
+        # (the HEAD original lied here with +1):
+        assert report["new_alerts"] == 0
+        # The OpsAlert was genuinely rolled back (savepoint isolation):
+        assert (
+            db.query(OpsAlert)
+            .filter(OpsAlert.source == source_tag)
+            .first()
+        ) is None
+        # No cascade — session clean for continued work:
+        assert db.execute(text("SELECT 1")).scalar() == 1
+    finally:
+        REGULATORY_RULES.clear()
+        REGULATORY_RULES.extend(original_rules)

@@ -270,20 +270,36 @@ def _store_chain_head_db_anchor(db: Session, chain_hash: str) -> None:
     """
     from sqlalchemy import text as _sql_text
     from app.core.silent_fallback import record_silent_return
+    from app.core.database import savepoint_scope
     try:
-        db.execute(
-            _sql_text(
-                """
-                INSERT INTO audit_chain_anchor (id, chain_head, updated_at, revision_counter)
-                VALUES (1, :chain_head, now(), 1)
-                ON CONFLICT (id) DO UPDATE
-                  SET chain_head = EXCLUDED.chain_head,
-                      updated_at = now(),
-                      revision_counter = audit_chain_anchor.revision_counter + 1
-                """
-            ),
-            {"chain_head": chain_hash},
-        )
+        # Best-effort, but isolated in its OWN SAVEPOINT (born
+        # 2026-05-19c, write_no_rollback class). The pre-2026-05-19c
+        # form swallowed a failed anchor INSERT with NO rollback — the
+        # aborted txn then cascaded inside every caller that runs
+        # write_audit_log within a savepoint_scope (regulatory_watch
+        # per-rule), because RELEASE SAVEPOINT on an aborted txn raises
+        # → InFailedSqlTransaction across all subsequent work + lying
+        # compliance summary. savepoint_scope rolls back ONLY the
+        # anchor write; the audit row (flushed BEFORE this savepoint)
+        # and the caller's transaction stay intact → the documented
+        # best-effort semantics are now preserved CORRECTLY, with no
+        # session poison. (savepoint-legal: the body only db.execute()s,
+        # no full commit — verified by audit_savepoint_scope_no_inner_
+        # commit.)
+        with savepoint_scope(db):
+            db.execute(
+                _sql_text(
+                    """
+                    INSERT INTO audit_chain_anchor (id, chain_head, updated_at, revision_counter)
+                    VALUES (1, :chain_head, now(), 1)
+                    ON CONFLICT (id) DO UPDATE
+                      SET chain_head = EXCLUDED.chain_head,
+                          updated_at = now(),
+                          revision_counter = audit_chain_anchor.revision_counter + 1
+                    """
+                ),
+                {"chain_head": chain_hash},
+            )
     except Exception as exc:
         record_silent_return("audit.chain_head_db_anchor_store")
         log.warning("audit: _store_chain_head_db_anchor failed: %s", exc)

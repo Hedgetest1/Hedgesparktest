@@ -68,17 +68,17 @@ _SITES: list[tuple[str, str, str]] = [
     ("app/services/merchant_churn_predictor.py", "rollback_quiet(db)", "compute_churn_report per-merchant scoring loop"),
     ("app/workers/segment_monitor_worker.py", "rollback_quiet(db)", "_process_product handlers (create_task commits per-call)"),
     ("app/services/contextual_bandit.py", "rollback_quiet(db)", "event-replay purchase-probe loop (conn-death class)"),
-    # regulatory_watch INTENTIONALLY ABSENT: d15ada0 mis-fixed it with
-    # rollback_quiet on a BATCH loop (post-loop commit @719) which would
-    # discard prior rules' flushed alerts + append-only compliance
-    # audit-log rows. Reverted to pre-d15ada0; re-opened as
-    # R-blocker:sprint (needs savepoint_scope per-rule via a careful
-    # ~120-line restructure) — project_db_session_rollback_class_sweep.
+    # regulatory_watch: BATCH loop, fixed 2026-05-19c with the
+    # Agent-verified savepoint_scope-per-rule shape (no inner swallow;
+    # counters folded post-release). d15ada0's rollback_quiet here was
+    # WRONG (discarded prior rules' alerts+audit-log) → reverted →
+    # correctly re-fixed with savepoint_scope.
+    ("app/services/regulatory_watch.py", "with savepoint_scope(db)", "run_regulatory_audit per-rule body (BATCH)"),
 ]
 
 # Floor: this many distinct (file,token) checks must run & pass. If the
 # list is gutted the audit fails rather than vacuously passing.
-_MIN_SITES = 14
+_MIN_SITES = 15
 
 
 def main() -> int:

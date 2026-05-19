@@ -213,10 +213,27 @@ fi
 # ---------------------------------------------------------------------------
 step "write_no_rollback class guard (audit_db_session_rollback.py)"
 if "$PY" scripts/audit_db_session_rollback.py > /tmp/preflight_dbsess_rb.log 2>&1; then
-    ok "write_no_rollback: all 14 class guards intact"
+    ok "write_no_rollback: all 15 class guards intact"
 else
     bad "write_no_rollback-class regression — see /tmp/preflight_dbsess_rb.log"
     tail -20 /tmp/preflight_dbsess_rb.log
+fi
+
+# ---------------------------------------------------------------------------
+# savepoint_scope no-inner-commit (audit_savepoint_scope_no_inner_commit).
+# Static counterpart to savepoint_scope's runtime self-enforcing guard:
+# blocks a `with savepoint_scope(db):` that wraps a body which
+# (transitively, via a bare-name function call) issues a full
+# db.commit()/rollback() — the d15ada0 #1 class (Klaviyo Pro-push
+# silently regressed). Defense in depth: caught at PREFLIGHT, not just
+# at runtime. Born 2026-05-19c.
+# ---------------------------------------------------------------------------
+step "savepoint_scope no-inner-commit (audit_savepoint_scope_no_inner_commit.py)"
+if "$PY" scripts/audit_savepoint_scope_no_inner_commit.py > /tmp/preflight_sp_noinner.log 2>&1; then
+    ok "savepoint_scope: no site wraps a transitively-committing body"
+else
+    bad "savepoint_scope wraps a committing body (d15ada0 #1 class) — see /tmp/preflight_sp_noinner.log"
+    tail -20 /tmp/preflight_sp_noinner.log
 fi
 
 # ---------------------------------------------------------------------------
