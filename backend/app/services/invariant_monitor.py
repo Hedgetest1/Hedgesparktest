@@ -573,6 +573,39 @@ def _auto_resolve_prior_invariant(db: Session, source: str) -> int:
     return n
 
 
+def _rollback_quiet(db: Session) -> None:
+    """Module-local alias of the canonical
+    `app.core.database.rollback_quiet` (single SoT for the
+    write_no_rollback class). Kept as a thin `def` — not a bare
+    re-export — so the preventer's FunctionDef assertion
+    (`audit_invariant_monitor_rollback.py`) and the contract test's
+    import contract (`test_invariant_monitor_rollback`) stay intact
+    while the recovery logic lives in exactly one place.
+
+    Born 2026-05-19 from the Sentry deep-DA: 6 'failed to write
+    invariant alert' incidents (all 2026-05-11) traced to except
+    handlers that logged but never rolled back — the safety net
+    silently swallowing its OWN alerts during the DB contention it
+    exists to detect (module header lines ~78-80, write_no_rollback)."""
+    from app.core.database import rollback_quiet
+    rollback_quiet(db)
+
+
+def _safe_check(fn, db: Session, summary: dict) -> None:
+    """Run one runtime check; on ANY failure log + rollback so a
+    poisoned session cannot cascade into the rest of the cycle
+    (including the alert-write phase). The wrapper makes the rollback
+    structurally impossible for a future _check_* to forget."""
+    try:
+        fn(db, summary)
+    except Exception as exc:
+        log.warning(
+            "invariant_monitor: %s failed: %s",
+            getattr(fn, "__name__", fn), exc,
+        )
+        _rollback_quiet(db)
+
+
 def run_invariant_check(db: Session) -> dict:
     """
     Run every registered audit once. Emit an ops_alert for each
@@ -593,48 +626,28 @@ def run_invariant_check(db: Session) -> dict:
 
     # Runtime checks that are NOT subprocess-audits (live state queries).
     # Each appends directly to summary and optionally writes an alert.
-    try:
-        _check_fleet_workers_reporting(db, summary)
-    except Exception as exc:
-        log.warning("invariant_monitor: fleet-workers check failed: %s", exc)
-    try:
-        _check_redis_durability(db, summary)
-    except Exception as exc:
-        log.warning("invariant_monitor: redis-durability check failed: %s", exc)
-    try:
-        _check_postgres_capacity(db, summary)
-    except Exception as exc:
-        log.warning("invariant_monitor: postgres-capacity check failed: %s", exc)
-    try:
-        _check_silent_audits(db, summary)
-    except Exception as exc:
-        log.warning("invariant_monitor: silent-audits check failed: %s", exc)
-    try:
-        _check_audit_findings_trend(db, summary)
-    except Exception as exc:
-        log.warning("invariant_monitor: audit-findings-trend check failed: %s", exc)
-    try:
-        _check_reports_invariants(db, summary)
-    except Exception as exc:
-        log.warning("invariant_monitor: reports-invariants check failed: %s", exc)
-    try:
-        _check_inventory_snapshot_freshness(db, summary)
-    except Exception as exc:
-        log.warning("invariant_monitor: inventory-snapshot check failed: %s", exc)
-    try:
-        _check_operator_shop_drift(db, summary)
-    except Exception as exc:
-        log.warning("invariant_monitor: operator-drift check failed: %s", exc)
-    try:
-        _check_env_file_perms(db, summary)
-    except Exception as exc:
-        log.warning("invariant_monitor: env-perm check failed: %s", exc)
-    try:
-        _check_service_config_perms(db, summary)
-    except Exception as exc:
-        log.warning(
-            "invariant_monitor: service-config-perm check failed: %s", exc
-        )
+    # Each runtime check runs through _safe_check: on ANY failure it
+    # logs AND rolls back, so a poisoned session can never cascade into
+    # the rest of the cycle — including the alert-write phase below. The
+    # pre-2026-05-19 form caught + logged but did NOT rollback, leaving
+    # `db` in InFailedSqlTransaction; every subsequent check and EVERY
+    # write_alert in the same cycle was then silently rejected
+    # (ground-truthed: 6 'failed to write invariant alert' Sentry
+    # incidents 2026-05-11). The wrapper (not 10 scattered rollbacks)
+    # makes the class structurally impossible for FUTURE checks too.
+    for _check in (
+        _check_fleet_workers_reporting,
+        _check_redis_durability,
+        _check_postgres_capacity,
+        _check_silent_audits,
+        _check_audit_findings_trend,
+        _check_reports_invariants,
+        _check_inventory_snapshot_freshness,
+        _check_operator_shop_drift,
+        _check_env_file_perms,
+        _check_service_config_perms,
+    ):
+        _safe_check(_check, db, summary)
     # preventer-regression check removed Stage 2-E (depended on old-brain
     # bugfix_pipeline.check_preventer_regressions, deleted with the
     # supersession sweep). Brain Vero owns regression detection now via
@@ -721,6 +734,7 @@ def run_invariant_check(db: Session) -> dict:
                 summary["alerts_written"] += 1
             except Exception as exc:
                 log.error("invariant_monitor: failed to write timeout alert: %s", exc)
+                _rollback_quiet(db)
             continue
 
         if status == "ok":
@@ -778,6 +792,7 @@ def run_invariant_check(db: Session) -> dict:
             summary["alerts_written"] += 1
         except Exception as exc:
             log.error("invariant_monitor: failed to write invariant_regression alert: %s", exc)
+            _rollback_quiet(db)
 
     return summary
 
@@ -843,6 +858,7 @@ def _check_fleet_workers_reporting(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: fleet-workers alert write failed: %s", exc)
+        _rollback_quiet(db)
 
 
 def _check_redis_durability(db: Session, summary: dict) -> None:
@@ -900,6 +916,7 @@ def _check_redis_durability(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: redis-durability alert write failed: %s", exc)
+        _rollback_quiet(db)
 
 
 
@@ -940,6 +957,7 @@ def _check_postgres_capacity(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: postgres-capacity alert write failed: %s", exc)
+        _rollback_quiet(db)
 
 
 # ---------------------------------------------------------------------------
@@ -1067,6 +1085,7 @@ def _check_silent_audits(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: silent-audits alert write failed: %s", exc)
+        _rollback_quiet(db)
 
 
 # ---------------------------------------------------------------------------
@@ -1184,6 +1203,7 @@ def _check_audit_findings_trend(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: trend alert write failed: %s", exc)
+        _rollback_quiet(db)
 
 
 # ---------------------------------------------------------------------------
@@ -1255,6 +1275,7 @@ def _check_reports_invariants(db: Session, summary: dict) -> None:
             summary["alerts_written"] += 1
         except Exception as exc:
             log.error("invariant_monitor: reports-indexes alert write failed: %s", exc)
+            _rollback_quiet(db)
         return
 
     # 2. Schedule-cap integrity — cross-tenant by design
@@ -1315,6 +1336,7 @@ def _check_reports_invariants(db: Session, summary: dict) -> None:
             summary["alerts_written"] += 1
         except Exception as exc:
             log.error("invariant_monitor: reports-cap alert write failed: %s", exc)
+            _rollback_quiet(db)
 
 
 # ---------------------------------------------------------------------------
@@ -1408,6 +1430,7 @@ def _check_inventory_snapshot_freshness(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: inventory freshness alert write failed: %s", exc)
+        _rollback_quiet(db)
 
 
 def _check_operator_shop_drift(db: Session, summary: dict) -> None:
@@ -1507,6 +1530,7 @@ def _check_operator_shop_drift(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: operator-drift alert write failed: %s", exc)
+        _rollback_quiet(db)
 
 
 def _check_service_config_perms(db: Session, summary: dict) -> None:
@@ -1600,6 +1624,7 @@ def _check_service_config_perms(db: Session, summary: dict) -> None:
             "invariant_monitor: service-config-perm alert write "
             "failed: %s", exc
         )
+        _rollback_quiet(db)
 
 
 def _check_env_file_perms(db: Session, summary: dict) -> None:
@@ -1683,3 +1708,4 @@ def _check_env_file_perms(db: Session, summary: dict) -> None:
         summary["alerts_written"] += 1
     except Exception as exc:
         log.error("invariant_monitor: env-perm alert write failed: %s", exc)
+        _rollback_quiet(db)

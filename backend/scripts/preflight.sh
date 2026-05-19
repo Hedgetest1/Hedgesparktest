@@ -188,6 +188,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Invariant-monitor poisoned-session guard (audit_invariant_monitor_rollback).
+# Every write_alert site in invariant_monitor must roll back on failure so
+# a poisoned session can't silently swallow the safety net's own alerts
+# (born 2026-05-19; ground truth: 6 'failed to write invariant alert'
+# Sentry incidents 2026-05-11 from except handlers that logged-but-never-
+# rolled-back). Future-proofs the class against a new unguarded site.
+# ---------------------------------------------------------------------------
+step "Invariant-monitor rollback guard (audit_invariant_monitor_rollback.py)"
+if "$PY" scripts/audit_invariant_monitor_rollback.py > /tmp/preflight_invmon_rb.log 2>&1; then
+    ok "invariant_monitor: all write_alert sites rollback-guarded"
+else
+    bad "invariant_monitor poisoned-session regression — see /tmp/preflight_invmon_rb.log"
+    tail -20 /tmp/preflight_invmon_rb.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2b''. GDPR receipt-only contract — `gdpr_requests.result_summary` must
 # never carry raw PII (events/orders/visitor_state/nudge_events arrays).
 # Born 2026-05-14 (TIER_2) — Art. 5(1)(c) data minimisation enforcement.

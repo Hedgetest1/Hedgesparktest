@@ -66,6 +66,7 @@ from sqlalchemy.orm import Session
 # cumulatively. Hoisting moves the 120ms to import time (once per
 # worker boot, not first request) — eliminates the head-of-line tail
 # that p95 was catching with statistical-noise alerts.
+from app.core.database import rollback_quiet
 from app.models.merchant import Merchant
 
 log = logging.getLogger(__name__)
@@ -232,6 +233,10 @@ def get_shop_currency(db: Session, shop_domain: str) -> str | None:
         rk = f"{_WARN_RATELIMIT_PREFIX}:currency_primary:{shop_domain}"
         if _should_emit_warning(rk):
             log.warning("revenue_metrics: primary_currency lookup failed for shop=%s: %s", shop_domain, exc)
+        # Heal the poisoned session so the order-history fallback query
+        # below — and every caller reusing this shared `db` — isn't
+        # rejected with InFailedSqlTransaction (the §0 #239 class).
+        rollback_quiet(db)
 
     # Fallback: derive from order history (pre-migration merchants)
     try:
@@ -257,6 +262,7 @@ def get_shop_currency(db: Session, shop_domain: str) -> str | None:
                 "revenue_metrics: failed to resolve currency for shop=%s: %s",
                 shop_domain, exc,
             )
+        rollback_quiet(db)  # heal shared session for the caller (§0 #239 class)
         return None
 
 
@@ -332,6 +338,7 @@ def get_shop_timezone(db: Session, shop_domain: str) -> str:
         rk = f"{_WARN_RATELIMIT_PREFIX}:timezone_iana:{shop_domain}"
         if _should_emit_warning(rk):
             log.warning("revenue_metrics: iana_timezone lookup failed for shop=%s: %s", shop_domain, exc)
+        rollback_quiet(db)  # heal shared session for the caller (§0 #239 class)
     # Don't cache the UTC fallback — we want to re-probe in case the
     # merchant's timezone lands after a reinstall.
     return "UTC"
@@ -500,4 +507,10 @@ def get_shop_aov(
             "using fallback AOV=%.2f",
             shop_domain, currency or "any", exc, FALLBACK_AOV,
         )
+        # The literal sentry #239 site. Heal the poisoned shared session
+        # so the fallback AOV is ACTUALLY graceful — every dashboard
+        # caller reusing `db` after this (dashboard.py:905/1362 + ~18
+        # more queries, weekly_digest, proof_engine, audience_segments,
+        # action_candidates) was dying with PendingRollbackError pre-fix.
+        rollback_quiet(db)
         return FALLBACK_AOV

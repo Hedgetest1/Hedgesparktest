@@ -171,6 +171,34 @@ SessionLocal = sessionmaker(
 Base = declarative_base()
 
 
+def rollback_quiet(session) -> None:
+    """Best-effort un-poison of a SQLAlchemy session after a CAUGHT DB
+    error, so the next operation that reuses the SAME session isn't
+    rejected with `InFailedSqlTransaction: current transaction is
+    aborted` / `PendingRollbackError: Can't reconnect until invalid
+    transaction is rolled back`.
+
+    Canonical single-SoT helper for the write_no_rollback class. Born
+    2026-05-19 from the Sentry deep-DA: a caught DB error logged
+    WITHOUT rollback leaves a shared session poisoned; every
+    subsequent query (in the same worker cycle / request) then fails
+    spuriously and the real work (or the alert that would flag it) is
+    silently lost. Ground truth: invariant_monitor (6 incidents
+    2026-05-11) + `revenue_metrics.get_shop_aov` (#239 — §0 revenue
+    path). Consumed by invariant_monitor (`_rollback_quiet` re-export),
+    revenue_metrics, and the class-wide sweep (sprint memo
+    project_db_session_rollback_class_sweep_2026_05_19).
+
+    Never raises: if rollback itself fails the connection is already
+    dead and the request-scoped / worker-cycle teardown will discard
+    the session anyway — re-raising here would mask the original error
+    the caller's handler exists to record."""
+    try:
+        session.rollback()
+    except Exception:
+        pass  # SILENT-EXCEPT-OK: rollback-after-poison is best-effort recovery; a failed rollback = dead connection the next SessionLocal cycle / request scope replaces cleanly. Re-raising would mask the original error the caller's handler exists to record.
+
+
 # ---------------------------------------------------------------------------
 # Read-replica support (ε1)
 # ---------------------------------------------------------------------------

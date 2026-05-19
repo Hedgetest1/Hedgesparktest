@@ -112,8 +112,18 @@ class TestRuntimeLayerWired:
         # It must be invoked from run_invariant_check's dispatch.
         import inspect
         src = inspect.getsource(im)
-        assert "_check_service_config_perms(db, summary)" in src, (
-            "function defined but not wired into the 15-min dispatch"
+        # Wired via the _safe_check dispatch loop (2026-05-19
+        # poisoned-session hardening): the check is listed in
+        # run_invariant_check's dispatch tuple AND every entry is
+        # invoked through _safe_check, which rolls back on failure so
+        # a poisoned session can't cascade into the rest of the cycle.
+        assert "_check_service_config_perms," in src, (
+            "function defined but not in run_invariant_check's "
+            "_safe_check dispatch tuple"
+        )
+        assert "_safe_check(_check, db, summary)" in src, (
+            "dispatch loop missing — runtime checks not invoked via "
+            "_safe_check (poisoned-session rollback wrapper)"
         )
 
     def test_runtime_layer_runs_clean_on_compliant_host(self, db):
