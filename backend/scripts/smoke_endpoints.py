@@ -58,7 +58,7 @@ class Result:
     notes: list[str] = field(default_factory=list)
 
 
-def _ensure_seed_merchant() -> None:
+def _ensure_seed_merchant() -> int:
     """Create the dedicated smoke-test merchant if it doesn't exist.
 
     Uses a raw connection rather than the FastAPI db session so we
@@ -86,14 +86,25 @@ def _ensure_seed_merchant() -> None:
             )
             db.add(m)
             db.commit()
-        else:
-            # Keep the smoke merchant at pro+active in case an earlier
-            # run left it in a degraded state.
-            if existing.plan != "pro" or not existing.billing_active:
-                existing.plan = "pro"
-                existing.billing_active = True
-                existing.install_status = "active"
-                db.commit()
+            return 0
+        # Keep the smoke merchant at pro+active in case an earlier
+        # run left it in a degraded state.
+        if existing.plan != "pro" or not existing.billing_active:
+            existing.plan = "pro"
+            existing.billing_active = True
+            existing.install_status = "active"
+            db.commit()
+        # Return the merchant's CURRENT session_version so the forged
+        # token matches it. Born 2026-05-19h: the smoke merchant had
+        # drifted to sv=19 (forced-logout/billing/uninstall paths bump
+        # it over months) while the token was hardcoded sv=0 →
+        # deps.py:190 token_sv(0) < db_sv(19) → 401 on EVERY authed
+        # route → all counted "skipped_auth" → the harness reported
+        # green while testing ~1/137 routes for an unknown number of
+        # commits. Read-and-match (NOT a DB sv reset): no row mutation,
+        # so no fight with the deps msv Redis cache (db_sv unchanged,
+        # cache stays consistent). Drift-robust by construction.
+        return int(getattr(existing, "session_version", 0) or 0)
     finally:
         db.close()
 
@@ -138,11 +149,13 @@ def _validate_schema(route: APIRoute, payload: object) -> tuple[bool, str | None
 
 
 def run_smoke(prefix_filter: str | None = None) -> list[Result]:
-    _ensure_seed_merchant()
+    smoke_sv = _ensure_seed_merchant()
 
-    # Build a session cookie for the smoke merchant.
+    # Build a session cookie for the smoke merchant. Mint with the
+    # merchant's CURRENT session_version (not hardcoded 0) so the
+    # forged session actually authenticates past deps.py:190.
     from app.core.merchant_session import create_session_token, SESSION_COOKIE_NAME
-    token = create_session_token(SMOKE_SHOP, session_version=0)
+    token = create_session_token(SMOKE_SHOP, session_version=smoke_sv)
     if token is None:
         print("FAIL: unable to mint smoke session token (HS_SESSION_SECRET unset?)", file=sys.stderr)
         return []
@@ -234,6 +247,23 @@ def summarize(results: list[Result]) -> dict:
     }
 
 
+def _smoke_session_vacuous(summary: dict) -> bool:
+    """True iff the smoke run is FICTION: the forged session reached
+    so few routes that "green" means nothing. `passed` counts
+    skipped(401/403/404) rows as ok=True, so the honest signal is
+    genuinely-2xx = passed - skipped_auth. Born 2026-05-19h: token
+    sv=0 vs merchant sv=19 → 136/137 auth-skipped while reporting
+    "passed 137". Measured-healthy baseline 86% genuine; the 50%
+    floor leaves a 36-pt margin (non-flaky vs normal 404/operator
+    variation) yet trips on the catastrophic session-broken collapse.
+    Pure function so the §1.4 lesson is contract-locked."""
+    total = summary.get("total", 0)
+    if total <= 0:
+        return False
+    genuine = summary.get("passed", 0) - summary.get("skipped_auth", 0)
+    return genuine < total * 0.5
+
+
 def main() -> int:
     prefix_filter = None
     strict = "--strict" in sys.argv
@@ -265,6 +295,31 @@ def main() -> int:
         exit_code = 1
     if strict and summary["p95_ms"] > P95_BUDGET_MS:
         print(f"FAIL: p95 {summary['p95_ms']} ms exceeds budget {P95_BUDGET_MS} ms")
+        exit_code = 1
+
+    # Structural vacuity guard (born 2026-05-19h — mechanizes the
+    # §1.4 "sanity-check the implausible green" lesson). `passed`
+    # counts skipped(401/403/404) rows as ok=True, so a forged
+    # session that authenticates NOTHING still reports
+    # "passed == total". The honest metric is genuinely-2xx =
+    # passed - skipped_auth. If a pro+active smoke session cannot
+    # reach the majority of /pro·/merchant·/analytics GET routes,
+    # the harness is testing ~nothing (the 2026-05-19 finding:
+    # token sv=0 vs merchant sv=19 → 136/137 skipped while green).
+    # Measured-healthy baseline = 86% genuine; 50% floor leaves a
+    # 36-pt margin (non-flaky vs normal 404/operator variation)
+    # while catching the catastrophic "session broken" collapse.
+    if strict and _smoke_session_vacuous(summary):
+        genuine = summary["passed"] - summary["skipped_auth"]
+        print(
+            f"FAIL: smoke harness vacuous — only {genuine}/"
+            f"{summary['total']} routes genuinely 2xx "
+            f"({summary['skipped_auth']} auth-skipped). The forged "
+            f"smoke session is NOT authenticating (likely token "
+            f"session_version vs merchant.session_version drift "
+            f"— see _ensure_seed_merchant). A green run here would "
+            f"be fiction."
+        )
         exit_code = 1
     return exit_code
 
