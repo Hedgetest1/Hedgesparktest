@@ -1934,6 +1934,27 @@ fi
 cd "$BACKEND"
 
 # ---------------------------------------------------------------------------
+# Undefined-name (F821) gate — born 2026-05-19i. The §21 sweep found
+# 9 LIVE latent NameError bugs (log×4 / deque×2 / linked /
+# compute_decision / shop_domain) that the fictional smoke harness +
+# low-data prod had hidden; a `name X is not defined` crashes the
+# first request to hit that path with 1 merchant or 10k. Instances
+# fixed; this locks the CLASS. Filtered to "undefined name" ONLY
+# (raw pyflakes is ~329 lines of pre-existing unused-import noise on
+# app/ — gating all = brick everything = over-broad). Scope: app/ +
+# scripts/ (both 0 now); tests/ excluded (fixtures use intentional
+# patterns). Pure-static, no DB/network.
+# ---------------------------------------------------------------------------
+step "Undefined-name F821 gate (pyflakes app/ + scripts/)"
+F821_HITS="$("$PY" -m pyflakes app/ scripts/ 2>&1 | grep -i 'undefined name' || true)"
+if [ -z "$F821_HITS" ]; then
+    ok "no undefined-name (F821) in app/ or scripts/"
+else
+    bad "undefined-name (F821) — NameError will crash these paths:"
+    echo "$F821_HITS" | head -20
+fi
+
+# ---------------------------------------------------------------------------
 # Pre-commit pytest reflex (G4 close 2026-05-06).
 #
 # Doctrine: top-1 CTO discipline runs full pytest BEFORE commit, every

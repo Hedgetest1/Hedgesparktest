@@ -42,6 +42,7 @@ import hashlib
 import json
 import logging
 import os
+from collections import deque  # F821: module-level annotation `"deque[float]"` (line ~150) referenced a name in NO scope
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 

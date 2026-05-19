@@ -59,7 +59,7 @@ _DEDUP_TTL_S = 3600         # 1h
 # exceeds the cap so memory is O(shops × cap) which is bounded.
 from collections import defaultdict as _defaultdict, deque as _deque
 import threading as _threading
-_LOCAL_RATE_BUCKETS: dict[str, "deque[float]"] = _defaultdict(_deque)
+_LOCAL_RATE_BUCKETS: dict[str, "_deque[float]"] = _defaultdict(_deque)  # F821: forward-ref must match the in-scope alias (`_deque`, not `deque`)
 _LOCAL_RATE_LOCK = _threading.Lock()
 
 

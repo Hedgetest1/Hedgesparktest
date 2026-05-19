@@ -6,3 +6,9 @@ httpx==0.28.1
 # merchant scales.
 coverage==7.13.5
 pytest-cov==7.1.0
+# Added 2026-05-19i: undefined-name (F821) preflight gate. The §21
+# sweep found 9 LIVE latent NameError bugs (log×4 / deque×2 / linked /
+# compute_decision / shop_domain) — instances now fixed; this locks
+# the CLASS so a new undefined-name can't ship. Pure-Python, €0,
+# dev/preflight only, zero production runtime impact.
+pyflakes==3.4.0

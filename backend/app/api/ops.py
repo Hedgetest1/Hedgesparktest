@@ -2153,6 +2153,18 @@ def ops_consumer_stats(
         .scalar() or 0
     )
 
+    # F821 class fix (2026-05-19i): `linked` was referenced in the
+    # return but NEVER computed → this /ops sentry-status summary
+    # NameError-500'd (blinding the operator on the very endpoint that
+    # reports incident health). Same query pattern as parse_errors;
+    # "linked" is a documented SentryIncident.status value (connected
+    # to a bugfix_candidate/ops_alert — see app/models/sentry_incident).
+    linked = (
+        db.query(func.count(SentryIncident.id))
+        .filter(SentryIncident.status == "linked")
+        .scalar() or 0
+    )
+
     return {
         "total_incidents": total,
         "unique_families": families,

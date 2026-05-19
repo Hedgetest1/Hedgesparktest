@@ -377,7 +377,7 @@ async def compose_nudge_variants(
     # 4. Call OpenAI with retry
     raw_response = None
     try:
-        raw_response = await _call_openai_with_retry(messages)
+        raw_response = await _call_openai_with_retry(messages, shop_domain=shop_domain)
     except Exception as exc:
         log.warning(
             "nudge_composer: OpenAI API error for product=%s after retries: %s — falling back",
@@ -573,7 +573,7 @@ def _build_messages(
 # OpenAI API call
 # ---------------------------------------------------------------------------
 
-async def _call_openai_with_retry(messages: list[dict]) -> str:
+async def _call_openai_with_retry(messages: list[dict], shop_domain: str = "") -> str:
     """
     Call the OpenAI Chat Completions API with exponential-backoff retry.
 

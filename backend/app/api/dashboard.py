@@ -654,6 +654,14 @@ def _build_ai_recommended_actions(
 
         price_opportunity = (price_item or {}).get("price_opportunity")
 
+        # F821 class fix (2026-05-19i): compute_decision was called
+        # here but NEVER imported → NameError (dashboard 500) on every
+        # product that reaches this branch. Latent because the smoke
+        # harness was fictional (pre-359308e) + 2 low-data prod
+        # merchants. Lazy import = this file's convention (only 2
+        # top-level app imports) + zero circular-import risk.
+        from app.api.decision_engine import compute_decision
+
         decision = compute_decision(
             intent_score=float(_safe_number(product.get("avg_intent_score"), 0)),
             uniqueness_hint=str(uniqueness_hint),

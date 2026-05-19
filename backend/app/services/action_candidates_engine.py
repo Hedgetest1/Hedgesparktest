@@ -37,6 +37,7 @@ Ranking formula
 """
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -58,6 +59,12 @@ from app.services.empirical_calibration import (
 from app.services.opportunity_engine import get_or_refresh_signals
 from app.services.revenue_loss import calculate_expected_loss
 from app.services.revenue_metrics import get_shop_aov
+
+# F821 class fix (2026-05-19i): `log` was used in 3 except handlers
+# (lines ~115/126/603) but NEVER bound → every error path raised
+# NameError instead of logging (the exact recurring Sentry class).
+# Canonical project pattern (revenue_metrics.py:72).
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Signal refresh concurrency guard — 10k merchant scale

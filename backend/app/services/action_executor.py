@@ -100,12 +100,19 @@ Public interface
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from app.models.action_task import ActionTask
+
+# F821 class fix (2026-05-19i): `log` used at ~line 782 (baseline-
+# capture except, the sole logger call in the file) but NEVER bound →
+# the non-fatal path raised NameError instead of warning. Canonical
+# project pattern (revenue_metrics.py:72).
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Status constants
