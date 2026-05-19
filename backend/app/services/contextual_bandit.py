@@ -342,6 +342,7 @@ def refresh_from_events(
         log.warning("bandit: event replay query failed: %s", exc)
         return report
 
+    from app.core.database import rollback_quiet
     for row in rows:
         ne_id, visitor_id, ne_ts, variant, _etype, _nudge_id, meta = row
         report["scanned"] += 1
@@ -369,6 +370,12 @@ def refresh_from_events(
             ).fetchone()
             success = purchase is not None
         except Exception:
+            # write_no_rollback class (2026-05-19b): read-only purchase
+            # probe, but a conn-death / PendingRollbackError mid-loop
+            # would poison the shared session for every remaining row +
+            # the caller. Un-poison before continuing (lower-prob
+            # conn-death class — the sentry #239 trigger shape).
+            rollback_quiet(db)
             continue
 
         # Derive context from event_meta JSON + event timestamp

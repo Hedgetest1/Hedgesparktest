@@ -55,16 +55,25 @@ _SITES: list[tuple[str, str, str]] = [
     ("app/services/invariant_monitor.py", "_safe_check(_check, db, summary)", "invariant runtime-check dispatch wrapper"),
     ("app/services/invariant_monitor.py", "_rollback_quiet(db)", "invariant write_alert handlers"),
     # --- SAVEPOINT batch loops (this sprint) ---
-    ("app/workers/intelligence_worker.py", "savepoint_scope(db)", "update_opportunity per-pair loop"),
     ("app/services/action_learning.py", "savepoint_scope(db)", "evaluate_pending_outcomes per-outcome loop"),
     ("app/services/prediction_log.py", "savepoint_scope(db)", "run_mature_predictions per-row UPDATE loop"),
     ("app/services/uninstall_erasure.py", "savepoint_scope(db)", "GDPR Art.17 watchdog per-merchant loop"),
     ("app/workers/tasks/nudge_compose_task.py", "savepoint_scope(db)", "nudge compose per-nudge loop"),
     ("app/services/action_proof.py", "savepoint_scope(db)", "compute_pending_deltas per-snap loop"),
-    # --- rollback_quiet commit-per-iter / read loops (this sprint) ---
+    # --- rollback_quiet commit-per-iter / read loops ---
+    # intelligence_worker: helper update_product_opportunity commits
+    # per-pair (CORRECTED 2026-05-19b — d15ada0 wrongly used
+    # savepoint_scope; the helper's commit dissolved the SAVEPOINT).
+    ("app/workers/intelligence_worker.py", "rollback_quiet(db)", "update_opportunity per-pair loop (helper commits per-pair)"),
     ("app/services/merchant_churn_predictor.py", "rollback_quiet(db)", "compute_churn_report per-merchant scoring loop"),
-    ("app/services/regulatory_watch.py", "rollback_quiet(db)", "run_regulatory_audit per-rule handlers"),
-    ("app/workers/segment_monitor_worker.py", "rollback_quiet(db)", "_process_product per-product handlers"),
+    ("app/workers/segment_monitor_worker.py", "rollback_quiet(db)", "_process_product handlers (create_task commits per-call)"),
+    ("app/services/contextual_bandit.py", "rollback_quiet(db)", "event-replay purchase-probe loop (conn-death class)"),
+    # regulatory_watch INTENTIONALLY ABSENT: d15ada0 mis-fixed it with
+    # rollback_quiet on a BATCH loop (post-loop commit @719) which would
+    # discard prior rules' flushed alerts + append-only compliance
+    # audit-log rows. Reverted to pre-d15ada0; re-opened as
+    # R-blocker:sprint (needs savepoint_scope per-rule via a careful
+    # ~120-line restructure) — project_db_session_rollback_class_sweep.
 ]
 
 # Floor: this many distinct (file,token) checks must run & pass. If the

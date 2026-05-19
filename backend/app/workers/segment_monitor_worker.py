@@ -323,12 +323,17 @@ def _process_product(
       "no_hot_visitors" — hot segment is empty
       "error"           — exception during computation
     """
-    # write_no_rollback class close 2026-05-19: every except below
-    # that catches a DB-touching failure un-poisons the shared session
-    # (run_cycle commits per-shop ~line 580; without this a poisoned
-    # product cascades to every remaining product+shop in the cycle).
-    # Bounded blast: this is a 5-min cursor-based periodic monitor —
-    # a degraded shop-cycle self-heals on the next cycle.
+    # write_no_rollback class close (2026-05-19, rationale CORRECTED
+    # 2026-05-19b): _process_product's load-bearing writes go through
+    # create_task, which commits per-call (action_executor.py:760+),
+    # so each product's task is already durable — this is effectively a
+    # commit-per-iteration loop. The bug was only the SHARED session
+    # being left poisoned on a caught failure → every later product +
+    # the post-batch WorkerLog/State commit (finally block) rejected
+    # with InFailedSqlTransaction. rollback_quiet un-poisons; the
+    # committed tasks are safe. (d15ada0 wrongly stated "per-shop
+    # commit @580" — no such commit exists; the fix shape is right,
+    # the stated reason was not.)
     from app.core.database import rollback_quiet
     # 1. Compute hot segment state
     try:

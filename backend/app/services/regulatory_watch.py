@@ -586,7 +586,6 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
         "gaps": [],
     }
 
-    from app.core.database import rollback_quiet
     for rule in REGULATORY_RULES:
         if not rule.enabled:
             continue
@@ -600,11 +599,6 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
                 rule.rule_id, exc,
             )
             compliant = False
-            # write_no_rollback class close 2026-05-19: check_fn does
-            # db.query; if it poisoned the session, un-poison so THIS
-            # rule's subsequent queries + every later rule + the
-            # per-rule commit (~line 711) aren't InFailedSqlTransaction.
-            rollback_quiet(db)
 
         source_tag = f"regulatory:{rule.rule_id}:v{rule.version}"
 
@@ -631,7 +625,6 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
                     )
             except Exception as exc:
                 log.warning("regulatory_watch: run_regulatory_audit failed: %s", exc)
-                rollback_quiet(db)  # write_no_rollback close: flush-fail poisoned the session; un-poison for the next rule (per-rule commit @ ~711)
             continue
 
         # Failed
@@ -659,7 +652,6 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
                 continue  # already alerted
         except Exception as exc:
             log.warning("regulatory_watch: run_regulatory_audit failed: %s", exc)
-            rollback_quiet(db)  # write_no_rollback close: dedup query poisoned the session; un-poison for the next rule (per-rule commit @ ~711)
             continue
 
         # Emit new alert

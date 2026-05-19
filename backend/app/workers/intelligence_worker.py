@@ -17,7 +17,7 @@ set_worker_context(worker_name="intelligence_worker")
 
 from sqlalchemy.orm import sessionmaker
 
-from app.core.database import engine, savepoint_scope
+from app.core.database import engine, rollback_quiet
 from app.models.visitor_product_state import VisitorProductState
 from app.models.worker_log import WorkerLog
 from app.models.worker_state import WorkerState
@@ -239,14 +239,8 @@ def run_cycle():
             # forever; the cursor advances past it next cycle.
             _last_pair = (shop_domain, product_url)
             try:
-                # SAVEPOINT-per-pair (write_no_rollback class close
-                # 2026-05-19): update_product_opportunity flushes but
-                # the loop commits LATER — a failing pair must roll back
-                # only itself, not poison the shared session for the
-                # remaining pairs + the deferred commit.
-                with savepoint_scope(db):
-                    with _worker_scope("intelligence_worker.update_opportunity", shop_domain):
-                        update_product_opportunity(db, product_url, shop_domain)
+                with _worker_scope("intelligence_worker.update_opportunity", shop_domain):
+                    update_product_opportunity(db, product_url, shop_domain)
                 log(f"updated opportunity for {shop_domain} | {product_url}")
                 rows_written += 1
                 shops_seen.add(shop_domain)
@@ -254,6 +248,16 @@ def run_cycle():
                 errors += 1
                 last_error = f"{shop_domain} | {product_url} | {e}"
                 log(f"error on {shop_domain} | {product_url}: {e}")
+                # write_no_rollback class (CORRECTED 2026-05-19b — d15ada0
+                # wrongly used savepoint_scope here; update_product_
+                # opportunity + update_price_intelligence commit per-pair
+                # so each pair is already durable. A failing pair only
+                # needs the SHARED session un-poisoned so the next pair's
+                # work isn't rejected with InFailedSqlTransaction. The
+                # SAVEPOINT was illegal — the helper's commit dissolved
+                # it → ResourceClosedError every iter → rows_written=0 +
+                # empty shops_seen → Klaviyo push silently stopped.)
+                rollback_quiet(db)
 
         # Advance the keyset cursor. Budget-broke OR a full page
         # (len == _PAIR_LIMIT) ⟹ more pairs may remain → resume past the

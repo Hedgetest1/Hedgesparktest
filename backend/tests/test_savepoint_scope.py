@@ -82,3 +82,19 @@ def test_exception_type_is_preserved(_tmp):
             raise _Sentinel("boom")
     # session still usable after a non-DB exception inside the scope
     assert db.execute(text("SELECT 1")).scalar() == 1
+
+
+def test_inner_full_commit_fails_loud_not_silent(_tmp):
+    """THE seal for the d15ada0 #1 regression: a body that issues a
+    full session.commit() (e.g. a helper like update_product_
+    opportunity) dissolves the SAVEPOINT. Pre-seal this raised a
+    cryptic ResourceClosedError on EVERY iteration → silent
+    rows_written=0 / empty shops_seen / Klaviyo-push stopped. The
+    primitive must now fail LOUD + ACTIONABLE on first execution so a
+    misclassified site (savepoint where rollback_quiet was correct) is
+    impossible to ship silently."""
+    db = _tmp
+    with pytest.raises(RuntimeError, match="SAVEPOINT was.*dissolved|MUST use rollback_quiet"):
+        with savepoint_scope(db):
+            db.execute(text("INSERT INTO _sp_test (id) VALUES (99)"))
+            db.commit()  # the illegal inner full commit (helper-commits class)

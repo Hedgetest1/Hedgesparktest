@@ -215,6 +215,24 @@ def savepoint_scope(session):
             pass  # SILENT-EXCEPT-OK: savepoint rollback best-effort; a failed one = dead conn the next cycle/request scope replaces. Original exception re-raised below for the caller's handler.
         raise
     else:
+        # Self-enforcing precondition (born 2026-05-19b after d15ada0
+        # wrapped intelligence_worker — whose helper update_product_
+        # opportunity issues a full db.commit() — in savepoint_scope:
+        # the inner commit DISSOLVED the SAVEPOINT, then nested.commit()
+        # raised a cryptic ResourceClosedError on EVERY iteration,
+        # silently zeroing rows_written/shops_seen (Klaviyo push
+        # regression). If the body issued a full session.commit()/
+        # rollback() the nested txn is no longer active — fail LOUD +
+        # ACTIONABLE on first execution instead of cascading silently.
+        if not nested.is_active:
+            raise RuntimeError(
+                "savepoint_scope: the wrapped body issued a full "
+                "session.commit()/rollback() — the SAVEPOINT was "
+                "dissolved. This call site MUST use rollback_quiet"
+                "(session), not savepoint_scope (a committing helper is "
+                "already per-iteration durable). See project_db_session_"
+                "rollback_class_sweep_2026_05_19."
+            )
         try:
             nested.commit()
         except Exception:
