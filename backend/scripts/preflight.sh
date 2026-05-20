@@ -251,6 +251,25 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2b'a. write_no_rollback Stage-1 forward preventer — info only.
+# audit_db_session_swallow detects new shared-session writes inside try
+# blocks whose except does NOT rollback (the d15ada0 / sentry #239
+# class but FORWARD: any new instance, not just the 16 locked sites).
+# Born 2026-05-20 as Stage 1 (REPORT mode, info-only). Stage 2
+# (R-blocker:sprint>1d) does per-site verification + flip to --strict.
+# Current backlog: ~27 candidates documented in
+# project_db_session_swallow_stage2_backlog.md.
+# ---------------------------------------------------------------------------
+step "write_no_rollback Stage-1 forward (audit_db_session_swallow.py — info only)"
+if "$PY" scripts/audit_db_session_swallow.py --report > /tmp/preflight_dbsess_sw.log 2>&1; then
+    ok "audit_db_session_swallow: report-mode complete (Stage 1)"
+else
+    # report mode should never exit non-zero unless self-test regresses
+    bad "audit_db_session_swallow self-test regressed — see /tmp/preflight_dbsess_sw.log"
+    tail -20 /tmp/preflight_dbsess_sw.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2b''. GDPR receipt-only contract — `gdpr_requests.result_summary` must
 # never carry raw PII (events/orders/visitor_state/nudge_events arrays).
 # Born 2026-05-14 (TIER_2) — Art. 5(1)(c) data minimisation enforcement.
