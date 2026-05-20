@@ -661,6 +661,14 @@ def test_coordinate_recovery_digest_dispatches(db, monkeypatch):
     }
     assert captured["email_type"] == "recovery_digest"
     assert captured["context"]["rars_eur"] == 5000
+    # 2026-05-20 currency-correctness fix: brain must pass shop_currency so
+    # non-EUR merchants don't receive `€{value}` in the email. The default
+    # _state() fixture sets currency="USD" → context must reflect that.
+    assert captured["context"]["shop_currency"] == state.currency, (
+        f"brain dispatch must thread state.currency into the email intent "
+        f"context — got {captured['context'].get('shop_currency')!r}, "
+        f"expected {state.currency!r}"
+    )
 
 
 def test_coordinate_proactive_nudge_queues_action_task(db, monkeypatch):

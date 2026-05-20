@@ -331,7 +331,13 @@ def check_hardcoded_currency(files: list[tuple[Path, list[str]]]) -> list[Findin
                     findings.append(Finding(
                         check="hardcoded_currency",
                         file=rel, line=i, code=stripped,
-                        severity="warning",
+                        # Bumped warning → critical 2026-05-20 after the
+                        # 45-finding backlog closed (recovery_digest
+                        # ESCALATE fixed): with the codebase at 0
+                        # findings, any NEW hardcoded currency is a real
+                        # regression. Severity bump = strict-gate block
+                        # at commit time, not just visible warning.
+                        severity="critical",
                         explanation="Hardcoded currency symbol or 'USD' — "
                                     "EUR/GBP merchants will see wrong currency",
                     ))
@@ -743,7 +749,14 @@ def check_frontend_hardcoded_currency(
                     file=f"dashboard/{rel}",
                     line=i,
                     code=stripped[:120],
-                    severity="warning",
+                    # Bumped warning → critical 2026-05-20 after the
+                    # frontend sweep closed (24/24 sites annotated +
+                    # marker-protected). With the codebase at 0
+                    # frontend findings, any NEW hardcoded literal is
+                    # a real regression — strict-gate block at commit
+                    # time. Pre-fix the gate was warning-only because
+                    # the migration sweep was open.
+                    severity="critical",
                     explanation=(
                         "Hardcoded currency literal in dashboard — non-EUR merchants "
                         "may see the wrong symbol. Route through "

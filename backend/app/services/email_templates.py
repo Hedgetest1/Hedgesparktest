@@ -1084,11 +1084,23 @@ def _render_retention_outreach(ctx: dict) -> tuple[str, str, str]:
 def _render_recovery_digest(ctx: dict) -> tuple[str, str, str]:
     """High-RAR recovery digest — fired when the brain detects significant
     revenue at risk on a shop that hasn't had a recovery action in 72h+.
-    Numbers-first, action-oriented, single CTA."""
+    Numbers-first, action-oriented, single CTA.
+
+    The `rars_eur` field name is a legacy misnomer — despite the suffix,
+    the value carries the shop's NATIVE-currency total (revenue_at_risk
+    does not FX-convert). `shop_currency` carries the shop's ISO 4217
+    code so the symbol matches the value. The brain (`_dispatch_recovery_
+    digest_email`) is the only producer; it passes both. Fallback to
+    "USD" when missing matches the rest of the email layer's defensive
+    posture (see app/services/abandoned_intent._resolve_currency)."""
+    from app.core.currency import format_money
+
     shop_name = ctx.get("shop_name", "your store")
     rars_eur = float(ctx.get("rars_eur") or 0)
     last_action_h = ctx.get("last_action_hours")
-    rars_str = f"€{int(rars_eur):,}".replace(",", ".") if rars_eur >= 1 else "€0"
+    # data-truth-allowed: defensive fallback — the brain dispatch always passes shop_currency=state.currency (governance schema requires it); "USD" is last-resort for direct callers (tests, synthetic fixtures) per app/core/currency.DEFAULT_CURRENCY
+    shop_currency = ctx.get("shop_currency") or "USD"
+    rars_str = format_money(rars_eur, shop_currency) if rars_eur >= 1 else format_money(0, shop_currency)
 
     if last_action_h is None:
         action_line = "no recovery action has run yet"

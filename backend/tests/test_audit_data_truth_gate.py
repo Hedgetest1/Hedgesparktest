@@ -99,14 +99,18 @@ def injected_hardcoded_euro():
 
 def test_audit_bites_on_hardcoded_euro_symbol(injected_hardcoded_euro):
     """
-    The warning-level 'hardcoded_currency' check must flag an inline €
-    outside the allowlisted detection files. --strict ignores warnings
-    (only critical findings block the commit), so we run WITHOUT --strict
-    and verify the output mentions the finding.
+    The 'hardcoded_currency' check must flag an inline € outside the
+    allowlisted detection files. Severity was bumped warning → critical
+    on 2026-05-20 after the 45-finding backlog closed (codebase at 0
+    findings), so --strict now BLOCKS on new violations — this test
+    flipped from `code == 0` to `code == 1`.
     """
-    code, out = _run_audit(strict=False)
-    # Non-strict exit code is always 0 (warnings don't block by design)
-    assert code == 0
+    code, out = _run_audit(strict=True)
+    # Post-2026-05-20: critical → strict exit 1.
+    assert code == 1, (
+        f"Strict gate must block on hardcoded € (post-severity-bump). "
+        f"Exit code {code}, output:\n{out[:1500]}"
+    )
     assert str(injected_hardcoded_euro.name) in out, (
         f"hardcoded_currency finding should be surfaced:\n{out}"
     )
@@ -134,14 +138,16 @@ def injected_frontend_hardcoded_euro(tmp_path):
 
 def test_audit_flags_frontend_hardcoded_currency(injected_frontend_hardcoded_euro):
     """
-    The frontend scan must catch a hardcoded € in dashboard TSX. It
-    reports as `warning` severity (non-blocking in strict mode) so
-    pre-existing violations don't block commits — but the finding IS
-    surfaced so drift is visible.
+    The frontend scan must catch a hardcoded € in dashboard TSX.
+    Severity was bumped warning → critical on 2026-05-20 after the
+    24-site frontend sweep closed (codebase at 0 findings); --strict
+    now blocks on new violations.
     """
-    code, out = _run_audit(strict=False)
-    # Non-strict exit is 0 regardless of warning count.
-    assert code == 0
+    code, out = _run_audit(strict=True)
+    assert code == 1, (
+        f"Strict gate must block on frontend hardcoded €. Exit {code}, "
+        f"out:\n{out[:1500]}"
+    )
     assert injected_frontend_hardcoded_euro.name in out, (
         "frontend_hardcoded_currency must report injected file:\n"
         + out[:1000]
@@ -149,16 +155,56 @@ def test_audit_flags_frontend_hardcoded_currency(injected_frontend_hardcoded_eur
     assert "frontend_hardcoded_currency" in out
 
 
-def test_audit_strict_still_ignores_frontend_warnings(injected_frontend_hardcoded_euro):
+def test_strict_gate_blocks_on_hardcoded_currency_post_2026_05_20():
+    """Forward-preventer pin: after the 45-finding backlog closed and
+    severity was bumped warning → critical, ANY new hardcoded currency
+    literal must block the commit. This test exists so a future revert
+    of the severity bump (back to "warning") fires immediately — the
+    `severity="critical"` line is now load-bearing for regression
+    prevention, not just diagnostic.
     """
-    --strict currently blocks on CRITICAL only. Frontend violations are
-    warnings by design — the full-migration sweep is a follow-up effort;
-    making every hardcoded € block commits would freeze the repo until
-    the sweep lands.
-    """
-    code, _ = _run_audit(strict=True)
-    # Clean repo → exit 0 even with 116 frontend warnings.
-    assert code == 0
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_audit_data_truth_severity_test", str(AUDIT_SCRIPT),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["_audit_data_truth_severity_test"] = mod
+    spec.loader.exec_module(mod)
+    # Inspect the source for the critical-severity bump on both backend
+    # and frontend currency checks. Structural pin so a revert is
+    # mechanically caught (a behavioural test could regress silently
+    # if the test fixture path changes).
+    src = AUDIT_SCRIPT.read_text()
+    # Count `severity="critical"` lines next to hardcoded_currency /
+    # frontend_hardcoded_currency findings.
+    assert src.count('check="hardcoded_currency"') == 1, (
+        "Expected exactly one hardcoded_currency Finding emission"
+    )
+    assert src.count('check="frontend_hardcoded_currency"') == 1, (
+        "Expected exactly one frontend_hardcoded_currency Finding"
+    )
+    # Both must be at critical severity post 2026-05-20.
+    # Window 800 chars: enough to span the multi-line comment that
+    # documents the 2026-05-20 severity bump rationale + the
+    # severity= line itself.
+    backend_block = src[
+        src.index('check="hardcoded_currency"'):
+        src.index('check="hardcoded_currency"') + 800
+    ]
+    frontend_block = src[
+        src.index('check="frontend_hardcoded_currency"'):
+        src.index('check="frontend_hardcoded_currency"') + 800
+    ]
+    assert 'severity="critical"' in backend_block, (
+        "hardcoded_currency severity must be 'critical' post 2026-05-20 "
+        "(reverting to 'warning' makes strict gate advisory again, "
+        "re-opening the regression vector). Backend block:\n"
+        + backend_block
+    )
+    assert 'severity="critical"' in frontend_block, (
+        "frontend_hardcoded_currency severity must be 'critical' "
+        "post 2026-05-20. Frontend block:\n" + frontend_block
+    )
 
 
 @pytest.fixture

@@ -998,10 +998,15 @@ def _dispatch_recovery_digest_email(
         return None, {"skipped": "no_contact_email_or_paused"}
 
     try:
+        # rars_total_eur is a legacy misnomer — the value is in the shop's
+        # NATIVE currency (see MerchantState docstring lines 77-80). Pass
+        # state.currency so the renderer formats with the correct symbol;
+        # non-EUR merchants previously received `€{value}` regardless.
         subject, html, plain = render_email("recovery_digest", {
             "shop_name": _shop_pretty_name(state.shop_domain),
             "rars_eur": state.rars_total_eur,
             "last_action_hours": state.last_action_age_hours,
+            "shop_currency": state.currency,
         })
         intent = EmailIntent(
             shop_domain=state.shop_domain,
@@ -1015,6 +1020,7 @@ def _dispatch_recovery_digest_email(
                 "brain_decision": decision.action_kind,
                 "rars_eur": state.rars_total_eur,
                 "last_action_hours": state.last_action_age_hours,
+                "shop_currency": state.currency,
             },
         )
         intent_id = submit_intent(db, intent)

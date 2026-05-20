@@ -336,7 +336,7 @@ ALLOWED_FIELDS = {
     "lite_morning_digest": {"signals_count", "top_product"},
     "gdpr_export": {"request_id"},
     "retention_outreach": {"shop_name", "orders_7d"},
-    "recovery_digest": {"shop_name", "rars_eur", "last_action_hours"},
+    "recovery_digest": {"shop_name", "rars_eur", "last_action_hours", "shop_currency"},
 }
 
 
@@ -370,7 +370,7 @@ _TEMPLATE_BASELINES = {
     "followup_noopen": "d94dd86490047275",
     "beta_welcome": "b62953ae377e29f9",
     "retention_outreach": "0f4030b745c9e759",
-    "recovery_digest": "39b1c9b73db30a6d",
+    "recovery_digest": "5920a10cb4e937cc",
 }
 
 _BASELINE_CONTEXTS = {
@@ -383,7 +383,7 @@ _BASELINE_CONTEXTS = {
     "followup_noopen": {"merchant_name": "BASELINE"},
     "beta_welcome": {"shop_name": "BASELINE", "merchant_name": "BASELINE"},
     "retention_outreach": {"shop_name": "BASELINE", "orders_7d": 1},
-    "recovery_digest": {"shop_name": "BASELINE", "rars_eur": 1000, "last_action_hours": 96},
+    "recovery_digest": {"shop_name": "BASELINE", "rars_eur": 1000, "last_action_hours": 96, "shop_currency": "USD"},
 }
 
 
