@@ -98,6 +98,7 @@ def log_prediction(
         return False
 
     prediction_date = _now().date()
+    # session-rollback: ok — all callers are API endpoints (reports.py:862, orders.py:618) via Depends(get_db) request-scoped session. Function docstring (l.92-95): "Never raises (prediction logging must not break the forecast it was called from)" — by design swallow. Workers do NOT call this. Cross-request poison impossible (session ends with request).
     try:
         db.execute(
             text(

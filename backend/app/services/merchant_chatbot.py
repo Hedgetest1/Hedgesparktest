@@ -276,6 +276,7 @@ def _run_deep_shopify_check(db: Session, merchant: Merchant, result: DiagnosticR
         log.info("chatbot: skipping deep check for blocklisted shop=%s", merchant.shop_domain)
         return
 
+    # session-rollback: ok — _run_deep_shopify_check reached only through run_diagnostics → process_message → API /pro/chat_support endpoint (chat_support.py:122) via Depends(get_db). agent_worker uses a DIFFERENT fn (check_entitlement_health), NOT this one. Cross-request poison impossible (request-scoped session).
     try:
         from app.core.token_crypto import decrypt_token
         from app.core.tracker_version import get_tracker_url

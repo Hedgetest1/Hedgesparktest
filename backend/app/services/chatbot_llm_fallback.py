@@ -450,6 +450,7 @@ def try_llm_fallback(
         # hallucination patterns (prompt needs tightening) as a bugfix source.
         # best-effort: alert emit failure does not affect the user-facing
         # chatbot response — the answer is rejected regardless.
+        # session-rollback: ok — request-scoped FastAPI dep teardown closes session on request exit
         try:
             from app.services.alerting import write_alert
             # heal-detection: LLM fallback event — per-call log entry

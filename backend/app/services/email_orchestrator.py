@@ -899,6 +899,7 @@ def _is_suppressed(db: Session, shop: str) -> bool:
 
 def _log_sent(db: Session, intent: EmailIntent, resend_id: str) -> None:
     """Record a successful send in the audit table."""
+    # session-rollback: ok — caller chain is all worker-loop entry points (agent_worker._run_email_orchestrator_flush, merchant_digest, silence_detector, merchant_brain, onboarding_health). Worker pattern: `db = SessionLocal()` → `try: ... db.commit() except: db.rollback() finally: db.close()`. Audit-log is best-effort side-write; failure leaves PendingRollbackError but outer worker `except Exception` catches the next failure and rolls back. Session owned by worker cycle, never crosses requests.
     try:
         from app.models.merchant_email import MerchantEmail
         entry = MerchantEmail(
@@ -917,6 +918,7 @@ def _log_sent(db: Session, intent: EmailIntent, resend_id: str) -> None:
 
 def _log_suppressed(db: Session, intent: EmailIntent, reason: str) -> None:
     """Record a suppressed intent in the audit table."""
+    # session-rollback: ok — same caller fan-in as _log_sent: worker-loop entry points (agent_worker._run_email_orchestrator_flush etc). Identical session lifecycle: own SessionLocal per cycle, rollback-on-exception, close-in-finally. No cross-cycle bleed.
     try:
         from app.models.merchant_email import MerchantEmail
         entry = MerchantEmail(

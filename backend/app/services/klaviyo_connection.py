@@ -242,6 +242,7 @@ def verify_klaviyo_connection(
         return {"status": STATUS_ERROR, "detail": "Key decryption failed"}
 
     # Call Klaviyo Accounts API — lightweight read-only endpoint
+    # session-rollback: ok — sole caller is API endpoint /pro/integrations/klaviyo/verify (integrations.py:125) via Depends(get_db) = request-scoped FastAPI session. Cross-request poison impossible (get_db generator handles rollback at request exit). No worker callsite.
     try:
         resp = httpx.get(
             _KLAVIYO_ACCOUNTS_URL,

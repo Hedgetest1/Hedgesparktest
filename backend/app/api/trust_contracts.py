@@ -201,6 +201,7 @@ def create_contract(
     shop: str = Depends(require_pro_session),
     db: Session = Depends(get_db),
 ):
+    # session-rollback: ok — request-scoped FastAPI dep (get_db) tears down session on request exit; poison cannot propagate across requests
     try:
         contract = tc_service.create_contract(
             db,

@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.database import savepoint_scope
 from app.models.ops_alert import OpsAlert
 
 log = logging.getLogger(__name__)
@@ -166,6 +167,7 @@ def _collapse_into_existing(
     existing.detail = json.dumps(prior_parsed, default=str)
     # Touch a visible mutation so ORM flushes it — SQLAlchemy tracks
     # assignment on Text fields reliably.
+    # session-rollback: ok — best-effort flush in caller-owned session; all write_alert callers either wrap (rollback_quiet/_safe_check, see 16-site regression-lock), worker_scope cycle exit, OR are request-scoped FastAPI (dep teardown closes session). The except below is the LAST stmt before `return existing` — no chained writes on the poisoned txn.
     try:
         db.flush()
     except Exception as exc:
@@ -312,34 +314,44 @@ def write_alert(
         severity, alert_type, source, shop_domain or "global", summary,
     )
 
-    # Step 2: Attempt external delivery + record outcome
+    # Step 2: Attempt external delivery + record outcome.
+    #
+    # Wrapped in savepoint_scope so a delivery_status flush failure does
+    # not poison the caller's session. The alert row from Step 1 (line
+    # ~308-309) is preserved regardless — the docstring contract "DB
+    # persist happens FIRST" is honored. If the savepoint fails, the
+    # in-memory `alert.delivery_status` mutation is rolled back (the
+    # status stays at the model default) but the alert ROW remains
+    # durable. Born 2026-05-20 closing the §21 nested-flush-poison
+    # class: pre-fix, a Step-2 flush failure left the session in
+    # PendingRollbackError state and the next caller op (emit() at
+    # ~356 or the caller's continuation) raised InFailedSqlTransaction.
     try:
-        from app.core.alert_delivery import deliver_alert_externally
-        from datetime import datetime, timezone
+        with savepoint_scope(db):
+            from app.core.alert_delivery import deliver_alert_externally
+            from datetime import datetime, timezone
 
-        delivered = deliver_alert_externally(
-            severity=severity,
-            source=source,
-            alert_type=alert_type,
-            summary=summary,
-            shop_domain=shop_domain,
-        )
-        if delivered:
-            alert.delivery_status = "sent"
-            alert.delivered_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        elif not os.getenv("OPS_SLACK_WEBHOOK_URL", "").strip():
-            alert.delivery_status = "skipped"
-        else:
-            alert.delivery_status = "failed"
-        db.flush()
-    except Exception as exc:
-        alert.delivery_status = "failed"
-        alert.delivery_error = str(exc)[:250]
-        try:
+            delivered = deliver_alert_externally(
+                severity=severity,
+                source=source,
+                alert_type=alert_type,
+                summary=summary,
+                shop_domain=shop_domain,
+            )
+            if delivered:
+                alert.delivery_status = "sent"
+                alert.delivered_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            elif not os.getenv("OPS_SLACK_WEBHOOK_URL", "").strip():
+                alert.delivery_status = "skipped"
+            else:
+                alert.delivery_status = "failed"
             db.flush()
-        except Exception as exc2:
-            log.warning("alerting: flush after delivery failure failed: %s", exc2)
-        log.debug("alert: external delivery error (non-fatal): %s", exc)
+    except Exception as exc:
+        # log.warning (not log.debug): the savepoint isolated the
+        # poison from the caller's txn, but a delivery + status-flush
+        # failure IS prod-relevant — operators need visibility into
+        # Slack/DB-side failures on the alert delivery path.
+        log.warning("alert: external delivery error (savepoint-isolated, non-fatal): %s", exc)
 
     # Phase Ω'' — outbound webhook fan-out. Compliance + GDPR sources go to
     # 'compliance.alert', everything else to 'anomaly.detected'. Shop-scoped
@@ -471,6 +483,7 @@ def auto_resolve_alerts(
     # a sequential audit fail → audit ok pattern was poisoning the
     # session because the previous failed write_alert had not been
     # rolled back before the heal UPDATE ran.
+    # session-rollback: ok — `with db.begin_nested():` (next line) is the SAVEPOINT; outer except observes release-failure but the SAVEPOINT auto-rollback already cleaned the txn. Heuristic missed the SAVEPOINT because the try body is multi-stmt with the `with` as the first child.
     try:
         with db.begin_nested():
             result = db.execute(
@@ -520,6 +533,7 @@ def heal_per_shop_alerts(
         return auto_resolve_alerts(db, source=source, alert_type=alert_type)
     # SAVEPOINT-isolate to protect caller's outer transaction (same
     # rationale as auto_resolve_alerts above).
+    # session-rollback: ok — `with db.begin_nested():` (next line) is the SAVEPOINT; same SAVEPOINT-isolation pattern as auto_resolve_alerts. Heuristic missed the SAVEPOINT because the try body is multi-stmt with the `with` as the first child.
     try:
         with db.begin_nested():
             result = db.execute(

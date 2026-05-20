@@ -360,6 +360,7 @@ def ingest_for_shop(
     rows_list = list(rows)
     res = IngestionResult(network=network, started_at=started.isoformat())
     res.rows_seen = len(rows_list)
+    # session-rollback: ok — sole caller chain is api/ads.py:156 (request-scoped get_db) → sync_shop_all → ingest_for_shop. On exception the outer try captures into res.error, caller iterates and continues; get_db generator rolls back at request end. No worker callsite (grep confirmed empty).
     try:
         ins, upd = upsert_rows(db, rows_list)
         res.rows_inserted = ins

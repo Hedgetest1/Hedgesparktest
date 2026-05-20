@@ -502,6 +502,7 @@ async def _generate_challenger(
     If the composer fails or falls back, the loser slot is left unchanged
     (the experiment continues with the original loser variant).
     """
+    # session-rollback: ok — nudge_optimization_worker singleton owns its own SessionLocal per 6h cycle (nudge_optimization_worker.py:135) + db.close() in finally (line 161). Per-nudge iteration wrapped in try/except (nudge_optimizer.py:724) — if a poisoned session propagates to the next nudge in the same cycle, its outer except logs+continues and the cycle ends with db.close() returning the connection. No cross-cycle (every 6h fresh session) and no cross-request (worker context) poisoning. Best-effort optimization path, not revenue.
     try:
         from app.services.nudge_composer import (
             compose_nudge_variants,

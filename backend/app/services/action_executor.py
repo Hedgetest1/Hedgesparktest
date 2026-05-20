@@ -771,6 +771,7 @@ def create_task(
     # This snapshot will be compared after 7 days to measure the action's
     # effect. best-effort: if the baseline capture fails the action still
     # goes through — measurement just degrades to "no baseline available".
+    # session-rollback: ok — task already committed at line 767; all callers heal a poisoned session before reuse: api/action_tasks.py:218 request-scoped get_db (teardown closes); segment_monitor_worker.py:422 wraps in try/except + rollback_quiet(db); action_agent._process_task wraps each task in try/except + db.rollback() (action_agent.py:86-92).
     try:
         from app.services.action_proof import capture_baseline
         capture_baseline(

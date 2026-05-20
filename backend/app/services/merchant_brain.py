@@ -1087,6 +1087,7 @@ def _dispatch_proactive_nudge_compose(
     if product_url is None:
         return None, {"skipped": "no_top_product"}
 
+    # session-rollback: ok — caller tick_all_active_merchants wraps each per-shop tick in try/except + db.rollback() (merchant_brain.py:1357-1359). worker phase (_run_merchant_brain_tick, agent_worker.py:221-249) opens own SessionLocal + closes in finally. Cross-shop/cross-cycle poisoning impossible.
     try:
         from app.models.action_task import ActionTask
         task = ActionTask(

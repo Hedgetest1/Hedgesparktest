@@ -260,13 +260,13 @@ def test_production_scan_quiet_report_returns_zero() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# 6. Strict mode — non-zero exit when findings exist.
+# 6. Strict mode — backlog cleared, strict returns 0 (Stage 2 close).
 # ──────────────────────────────────────────────────────────────────────
-def test_strict_mode_exits_nonzero_on_findings() -> None:
-    """In Stage 2, --strict mode will gate the preflight. This test
-    pins the contract so the flip is mechanical."""
+def test_strict_mode_returns_zero_after_stage2_close() -> None:
+    """Stage 2 (2026-05-20) cleared the 27-candidate backlog (26
+    annotations + 1 structural fix via savepoint_scope on alerting.py
+    Step-2 delivery_status flush). Strict mode now gates the preflight
+    and MUST return 0; a regression (new un-annotated shared-session
+    swallow-no-rollback site) would re-fire and block the commit."""
     rc = main(["--strict", "--quiet"])
-    # Stage 1: 27 known candidates exist → strict must return 1.
-    # When Stage 2 lands and the backlog is cleared, this test
-    # contract will need updating along with the strict-flip.
-    assert rc == 1
+    assert rc == 0

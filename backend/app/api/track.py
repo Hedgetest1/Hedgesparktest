@@ -395,6 +395,7 @@ def _upsert_visitor(db: Session, visitor_id: str, shop_domain: str) -> None:
         visitor.last_seen = now
         return
 
+    # session-rollback: ok — caller is /track endpoint with request-scoped get_lazy_db dep; SAVEPOINT (begin_nested) rolls back on IntegrityError leaving outer txn intact, and session is torn down on request exit regardless
     try:
         nested = db.begin_nested()  # SAVEPOINT
         db.add(Visitor(visitor_id=visitor_id, shop_domain=shop_domain, first_seen=now, last_seen=now))
@@ -512,6 +513,7 @@ def _persist_purchase(db: Session, payload: TrackPayload) -> None:
         financial_status=(payload.financial_status or "paid"),
         fulfillment_status=(payload.fulfillment_status or "unfulfilled"),
     )
+    # session-rollback: ok — caller is /track endpoint with request-scoped get_lazy_db dep; SAVEPOINT (begin_nested) rolls back on IntegrityError without poisoning outer txn, and session teardown on request exit bounds any residual
     try:
         nested = db.begin_nested()  # SAVEPOINT — won't kill the outer transaction
         db.add(order)
@@ -609,6 +611,7 @@ def _persist_visitor_bridge(db: Session, payload: TrackPayload) -> None:
     # Resolve attribution from visitor's event history
     attr = _resolve_visitor_attribution(db, payload.shop_domain, bridge_vid)
 
+    # session-rollback: ok — caller is /track endpoint with request-scoped get_lazy_db dep; SAVEPOINT (begin_nested) rolls back on IntegrityError, and session teardown on request exit prevents cross-request poisoning
     try:
         nested = db.begin_nested()
         db.add(VisitorPurchaseSession(

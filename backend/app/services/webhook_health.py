@@ -182,6 +182,7 @@ def repair_missing_webhooks(db: Session, shop_domain: str) -> WebhookRepairResul
         if not relative_path:
             continue
         target_url = f"{_APP_URL}{relative_path}"
+        # session-rollback: ok — body of this try IS a savepoint_scope (per-topic write_no_rollback fix 2026-05-19f, 16-site regression-lock). Outer try catches savepoint_scope's release exception + collects per-topic failures into result.failed. Worker caller wraps each merchant in own try/except + db.rollback() — cross-iteration session clean.
         try:
             # SAVEPOINT-per-topic (write_no_rollback class — born
             # 2026-05-19f; the §21 multidim sweep a7de1ee12382855f5

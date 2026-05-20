@@ -248,6 +248,7 @@ def execute_bi_query(
         # Audit-log every attempt — even failures — so the operator
         # can spot abuse patterns. Audit write must NEVER block the
         # response; on failure log + swallow.
+        # session-rollback: ok — request-scoped FastAPI dep (get_db) tears down session on request exit; poison cannot propagate across requests
         try:
             from app.services.audit import write_audit_log
             duration_ms = int((time.monotonic() - started) * 1000)

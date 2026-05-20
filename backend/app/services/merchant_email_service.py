@@ -238,6 +238,7 @@ def _log_email(
     resend_id: str | None = None,
 ) -> None:
     """Persist email attempt to merchant_emails table."""
+    # session-rollback: ok — orphan helper (zero callers as of 2026-05-20 grep); session lifecycle would be caller-owned (worker/request scope) if revived. Flagged for follow-up cleanup memo; annotated for Stage 2 closure consistency.
     try:
         entry = MerchantEmail(
             shop_domain=shop_domain,

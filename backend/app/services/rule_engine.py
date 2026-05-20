@@ -287,6 +287,7 @@ def evaluate_trigger(
         else:
             log.info("rule_engine: rule #%d skipped: %s", rule.id, reason)
 
+    # session-rollback: ok — sole caller public_events.py:278 wraps in try/except whose except path calls db.rollback() (line 305) + db.close() in finally (line 310); request-scoped SessionLocal, no cross-request reuse.
     try:
         db.flush()
     except Exception as exc:

@@ -71,6 +71,7 @@ def _has_recent_redact_request(db: Session, shop_domain: str) -> bool:
 
 def _emit_self_heal_alert(db: Session, shop_domain: str) -> None:
     from app.models.ops_alert import OpsAlert
+    # session-rollback: ok — caller `run_uninstall_erasure_watchdog` wraps each per-merchant iteration in `with savepoint_scope(db):` (16-site regression-lock entry). _emit_self_heal_alert is called INSIDE that savepoint — a poisoned-flush exception bubbles to savepoint_scope.__exit__ which rolls back the savepoint cleanly. Inner swallow is redundant but harmless; outer savepoint provides the real isolation.
     try:
         db.add(OpsAlert(
             severity="warning",

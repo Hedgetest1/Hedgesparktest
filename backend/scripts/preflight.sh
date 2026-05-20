@@ -260,13 +260,12 @@ fi
 # Current backlog: ~27 candidates documented in
 # project_db_session_swallow_stage2_backlog.md.
 # ---------------------------------------------------------------------------
-step "write_no_rollback Stage-1 forward (audit_db_session_swallow.py — info only)"
-if "$PY" scripts/audit_db_session_swallow.py --report > /tmp/preflight_dbsess_sw.log 2>&1; then
-    ok "audit_db_session_swallow: report-mode complete (Stage 1)"
+step "write_no_rollback Stage-2 forward STRICT (audit_db_session_swallow.py)"
+if "$PY" scripts/audit_db_session_swallow.py --strict > /tmp/preflight_dbsess_sw.log 2>&1; then
+    ok "audit_db_session_swallow: no shared-session swallow-no-rollback (Stage 2 — class closed)"
 else
-    # report mode should never exit non-zero unless self-test regresses
-    bad "audit_db_session_swallow self-test regressed — see /tmp/preflight_dbsess_sw.log"
-    tail -20 /tmp/preflight_dbsess_sw.log
+    bad "audit_db_session_swallow: shared-session swallow-no-rollback detected — see /tmp/preflight_dbsess_sw.log"
+    tail -30 /tmp/preflight_dbsess_sw.log
 fi
 
 # ---------------------------------------------------------------------------

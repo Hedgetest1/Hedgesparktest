@@ -1068,7 +1068,7 @@ _RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
     # "shop_domain=:shop_domain", "resolved=false") joined with " AND ".
     # No user input enters the SQL — only the bind values are user-
     # supplied (which ARE bound via params). Safe by construction.
-    "app/services/alerting.py:477",
+    "app/services/alerting.py:490",
 }
 
 

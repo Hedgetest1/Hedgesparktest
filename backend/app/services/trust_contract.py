@@ -310,6 +310,7 @@ def can_execute(
         contract.status = "paused"
         contract.revoked_at = _now()
         contract.revoked_reason = f"auto_pause:rev_drop_{drop_pct:.1f}%"
+        # session-rollback: ok — sole caller action_agent._process_task wraps each task in try/except + db.rollback() (action_agent.py:86-92), healing any aborted txn before the next task in the cycle. Worker owns SessionLocal + closes in finally (agent_worker.py). No cross-task or cross-cycle poisoning; the auto-pause attribute mutations are recovered on the per-task rollback.
         try:
             db.flush()
         except Exception as exc:

@@ -638,6 +638,7 @@ def run_regulatory_audit(db: Session) -> dict[str, Any]:
         # itself savepoint-isolated (audit.py) so it can't poison this
         # one. auto_resolved/new_alerts fold AFTER a clean release —
         # exact original: those were incremented only on flush success.
+        # session-rollback: ok — body wraps in savepoint_scope (next line, 16-site regression-lock). Outer try catches savepoint release-exceptions per docstring "Savepoint rolled back this rule's alert side-effect ... Session is clean for the next rule".
         try:
             with savepoint_scope(db):
                 existing = (

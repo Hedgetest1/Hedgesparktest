@@ -213,6 +213,7 @@ def attempt_delivery(db: Session, delivery_id: int) -> str:
     d.attempts = (d.attempts or 0) + 1
     d.last_attempted_at = _now()
 
+    # session-rollback: ok — docstring contract "Does NOT raise — failures are recorded in the row". Outer except routes to _record_failure which does its own flush. Callers: api/outbound_webhooks.py (request-scoped FastAPI) OR deliver_pending_batch (singleton worker, per-iteration try). _record_failure mutates the SAME `d` row already in pending state — no cross-row poison.
     try:
         import httpx
         with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
