@@ -1689,6 +1689,7 @@ def ops_merchant_profile(
     ]
 
     # Activity: recent event count
+    # sql-ms-type: ok — `:cutoff` bound to int(...*1000) inline (int epoch ms).
     event_count_7d = db.execute(sa_text("""
         SELECT COUNT(*) FROM events
         WHERE shop_domain = :shop

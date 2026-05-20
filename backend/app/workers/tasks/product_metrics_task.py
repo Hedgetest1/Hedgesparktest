@@ -42,6 +42,7 @@ def find_active_products(conn, last_watermark: int) -> list[tuple[str, str]]:
     DEPRECATED — use find_active_products_batch for cursor-based pagination.
     Kept for backward compatibility; callers should migrate.
     """
+    # sql-ms-type: ok — `:watermark` bound to last_watermark (typed `int` epoch ms).
     result = conn.execute(
         text("""
             SELECT DISTINCT shop_domain, product_url
@@ -64,6 +65,7 @@ def find_active_products_batch(
 ) -> list[tuple[str, str]]:
     """Cursor-based batch fetch of active products."""
     if cursor_shop is not None and cursor_product is not None:
+        # sql-ms-type: ok — `:watermark` bound to last_watermark (typed `int` epoch ms).
         result = conn.execute(
             text("""
                 SELECT DISTINCT shop_domain, product_url
@@ -82,6 +84,7 @@ def find_active_products_batch(
             },
         )
     else:
+        # sql-ms-type: ok — `:watermark` bound to last_watermark (typed `int` epoch ms).
         result = conn.execute(
             text("""
                 SELECT DISTINCT shop_domain, product_url
@@ -111,6 +114,7 @@ _ZERO_PURCHASE_FIELDS = {
 }
 
 
+# sql-ms-type: ok — all `:cutoff_*` binds passed as int epoch ms (caller convention).
 _PRODUCT_METRICS_SQL = text("""
     WITH product_events AS (
         SELECT

@@ -755,6 +755,7 @@ def _run_cycle_inner() -> None:
                 cutoff_ms = int(
                     (datetime.now(timezone.utc) - timedelta(days=180)).timestamp() * 1000
                 )
+                # sql-ms-type: ok — `:cutoff` bound to cutoff_ms (int epoch ms).
                 result = conn.execute(text("""
                     DELETE FROM events
                     WHERE id IN (

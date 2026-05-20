@@ -143,6 +143,7 @@ def _build_vitals_section(db: Session, now: datetime) -> str:
 
     # Event ingestion rate (last hour)
     cutoff_ms = int((now - timedelta(hours=1)).timestamp() * 1000)
+    # sql-ms-type: ok — `:cutoff` bound to cutoff_ms (int epoch ms).
     event_count = db.execute(text(
         "SELECT COUNT(*) FROM events WHERE timestamp >= :cutoff"
     ), {"cutoff": cutoff_ms}).scalar() or 0

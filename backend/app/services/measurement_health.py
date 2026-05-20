@@ -137,6 +137,7 @@ def _check_event_flow(db: Session, shop_domain: str) -> HealthState:
     day_ago = now_ms - 86_400_000
     week_ago = now_ms - 7 * 86_400_000
 
+    # sql-ms-type: ok — day_ago/week_ago are int epoch ms (computed above).
     row = db.execute(
         text("""
             SELECT

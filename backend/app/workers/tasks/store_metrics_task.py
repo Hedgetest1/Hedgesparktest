@@ -52,6 +52,7 @@ def compute_store_metrics(conn, shop_domain: str) -> dict:
         view_map = {r[0]: int(r[1] or 0) for r in top_rows}
 
         if len(top_urls) >= 2:
+            # sql-ms-type: ok — `:cutoff_7d` bound to int epoch ms (locally computed above).
             pair_result = conn.execute(
                 text("""
                     WITH visitor_products AS (
@@ -93,6 +94,7 @@ def compute_store_metrics(conn, shop_domain: str) -> dict:
 
     new_v, new_c, ret_v, ret_c = 0, 0, 0, 0
     try:
+        # sql-ms-type: ok — `:cutoff_7d` bound to int epoch ms (locally computed above).
         cohort_result = conn.execute(
             text("""
                 WITH visitor_status AS (

@@ -147,6 +147,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 2a'. SQL-ms-type audit — catches the BIGINT epoch-ms vs PG timestamp
+# class (events.timestamp / ts_ms / last_event_at compared against
+# now()/:datetime bind/ISO literal). Born 2026-05-20 after 35796ae
+# hand-fixed the canonical instance.
+# ---------------------------------------------------------------------------
+step "SQL ms-type audit (audit_sql_ms_column_type.py)"
+if "$PY" scripts/audit_sql_ms_column_type.py > /tmp/preflight_ms_type.log 2>&1; then
+    ok "no unsafe bigint-ms ↔ timestamp comparisons"
+else
+    bad "pg-ms-type bug class — see /tmp/preflight_ms_type.log"
+    tail -30 /tmp/preflight_ms_type.log
+fi
+
+# ---------------------------------------------------------------------------
 # 2b. Tenant isolation audit — catches unfiltered multi-tenant queries
 # ---------------------------------------------------------------------------
 step "Tenant isolation audit (audit_tenant_isolation.py)"

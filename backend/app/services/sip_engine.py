@@ -143,6 +143,7 @@ def compute_sip(
     month_ago_ms = int((now - timedelta(days=30)).timestamp() * 1000)
 
     # ── 1. Count total data points (events in last 30 days) ──
+    # sql-ms-type: ok — `:ts` bound to month_ago_ms (int epoch ms).
     row = conn.execute(
         text("SELECT COUNT(*) FROM events WHERE shop_domain = :shop AND timestamp > :ts"),
         {"shop": shop_domain, "ts": month_ago_ms},
@@ -849,6 +850,7 @@ def _compute_baselines(conn: Connection, shop: str) -> dict:
 
 def _compute_source_quality(conn: Connection, shop: str, cutoff_ms: int) -> dict | None:
     """Per-source conversion quality score (cart_rate relative to store average)."""
+    # sql-ms-type: ok — `:ts` bound to cutoff_ms (typed `int` epoch ms).
     rows = conn.execute(
         text("""
             SELECT
@@ -1065,6 +1067,7 @@ def _compute_signal_frequency(conn: Connection, shop: str) -> dict | None:
 
 def _compute_temporal_patterns(conn: Connection, shop: str, cutoff_ms: int) -> list | None:
     """Traffic and conversion by hour-of-day (last 7 days)."""
+    # sql-ms-type: ok — `:ts` bound to cutoff_ms (typed `int` epoch ms).
     rows = conn.execute(
         text("""
             SELECT

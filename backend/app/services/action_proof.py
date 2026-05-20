@@ -29,6 +29,7 @@ def _product_metrics_now(db: Session, shop: str, product_url: str, days: int = 7
     """Compute current product metrics for baseline or comparison."""
     try:
         cutoff_ms = int((_now() - timedelta(days=days)).timestamp() * 1000)
+        # sql-ms-type: ok — `:cutoff` bound to cutoff_ms (int epoch ms).
         row = db.execute(
             text("""
                 SELECT

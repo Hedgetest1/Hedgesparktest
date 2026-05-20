@@ -68,6 +68,7 @@ def _delete_events_older_than(
     """Delete up to `batch_size` rows from `events` whose `timestamp`
     (epoch milliseconds) is older than `cutoff_epoch_ms`. Uses an
     id-scoped WHERE clause so we never lock the whole table."""
+    # sql-ms-type: ok — `:cutoff` bound to cutoff_epoch_ms (typed `int` ms).
     result = db.execute(sql_text("""
         DELETE FROM events
         WHERE id IN (

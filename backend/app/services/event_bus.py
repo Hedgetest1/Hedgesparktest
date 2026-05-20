@@ -434,6 +434,7 @@ def aggregate_by_source(
     """Fast source breakdown — hot path for dashboard cards."""
     since_ms = _now_ms() - window_days * 86400 * 1000
     try:
+        # sql-ms-type: ok — `:since` bound to since_ms (int epoch ms).
         rows = db.execute(
             sql_text(
                 """
@@ -491,6 +492,7 @@ def cleanup_old_events(db: Session) -> int:
     rolls back only that batch; committed batches are retained and the
     next run resumes."""
     cutoff_ms = _now_ms() - _RETENTION_DAYS * 86400 * 1000
+    # sql-ms-type: ok — `:cutoff` bound to cutoff_ms (int epoch ms).
     stmt = sql_text(
         "DELETE FROM analytics_events WHERE id IN ("
         "SELECT id FROM analytics_events WHERE ts_ms < :cutoff "

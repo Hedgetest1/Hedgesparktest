@@ -1602,6 +1602,8 @@ def _measure(db: Session, decision) -> str:
             cutoff_ms = int(decision.decision_at.replace(
                 tzinfo=timezone.utc
             ).timestamp() * 1000)
+            # sql-ms-type: ok — `:c` bound to cutoff_ms (int epoch ms),
+            # the canonical 35796ae fix shape.
             n = int(db.execute(
                 text("SELECT COUNT(*) FROM events WHERE shop_domain=:s "
                      "AND timestamp >= :c"),
@@ -1653,6 +1655,7 @@ def _measure(db: Session, decision) -> str:
             window_start_ms = int(decision.decision_at.replace(
                 tzinfo=timezone.utc
             ).timestamp() * 1000)
+            # sql-ms-type: ok — `:c` bound to window_start_ms (int epoch ms).
             sessions = int(db.execute(
                 text("SELECT COUNT(DISTINCT visitor_id) FROM events "
                      "WHERE shop_domain=:s AND timestamp >= :c"),

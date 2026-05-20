@@ -111,6 +111,7 @@ def get_anomaly_replay(
     window_start_ms = now_ms - (minutes * 60 * 1000)
 
     # Pull ALL events in window for this shop — tenant-isolated.
+    # sql-ms-type: ok — `:window_start`/`:now_ms` are int epoch ms (computed above).
     try:
         rows = db.execute(
             text(

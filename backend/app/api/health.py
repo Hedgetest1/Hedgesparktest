@@ -158,6 +158,7 @@ def system_health():
             now_epoch_ms = int(time.time() * 1000)
             one_hour_ago = now_epoch_ms - 3_600_000
             with engine.connect() as conn:
+                # sql-ms-type: ok — `:ts` bound to one_hour_ago (int epoch ms).
                 row = conn.execute(text(
                     "SELECT COUNT(*) FROM events WHERE timestamp > :ts"
                 ), {"ts": one_hour_ago}).fetchone()
@@ -294,6 +295,7 @@ def signal_count_week():
         now_ms = int(_time.time() * 1000)
         week_ago = now_ms - 7 * 86_400 * 1_000
         with engine.connect() as conn:
+            # sql-ms-type: ok — `:ts` bound to week_ago (int epoch ms).
             row = conn.execute(
                 text("SELECT COUNT(*) FROM events WHERE timestamp > :ts"),
                 {"ts": week_ago},
