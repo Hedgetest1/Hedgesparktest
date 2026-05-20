@@ -1047,21 +1047,14 @@ _ELITE_HARDENING_MARKER = re.compile(
 # allowlist update; the marker is line-shift-resistant.
 #
 # Migration 2026-05-20 (closing the §21 11/10 META gap on line-shift
-# brittleness): 11 of 12 existing entries migrated to in-source
-# `# elite-hardening-allowed: <reason>` marker. The 1 remaining entry
-# (gdpr_processor.py — TIER_2 per CLAUDE.md §10) intentionally stays
-# in this absolute-line allowlist because TIER_2 files require fresh
-# founder approval for ANY edit including comment-only safety
-# annotations. The marker migration for this site is deferred until
-# the founder explicitly approves the gdpr_processor.py touch in a
-# dedicated turn.
-_RAW_SQL_FSTRING_ALLOWLIST: set[str] = {
-    # TIER_2 — line-shift-tracked until founder approves the marker
-    # migration (CLAUDE.md §10). 2026-05-14 TIER_2 refactor shifted
-    # 283 → 298; future TIER_2 edits MUST sync this line OR migrate
-    # to the marker in the same approved turn.
-    "app/services/gdpr_processor.py:298",
-}
+# brittleness): all 12 existing entries migrated to in-source
+# `# elite-hardening-allowed: <reason>` marker. The marker is
+# line-shift-resistant by construction: refactor moves the marker
+# with the f-string. This set is now empty by design.
+#
+# gdpr_processor.py:298 migration shipped after founder TIER_2
+# approval ("Approvo Tier 2" 2026-05-20).
+_RAW_SQL_FSTRING_ALLOWLIST: set[str] = set()
 
 
 def test_no_new_raw_sql_fstring_interpolation():

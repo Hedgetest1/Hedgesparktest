@@ -295,6 +295,7 @@ def _process_customers_data_request(db: Session, req: GdprRequest) -> str:
         params["email"] = email
     if order_filter:
         where = " OR ".join(order_filter)
+        # elite-hardening-allowed: where clause built from hardcoded ":cid"/":email" filter strings joined with " OR ". Parameters bound via the second arg to execute(). No user input enters the SQL.
         rows = db.execute(text(
             f"SELECT shopify_order_id, total_price, currency, created_at "
             f"FROM shop_orders WHERE shop_domain = :shop AND ({where}) "
