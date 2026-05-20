@@ -472,6 +472,7 @@ def _aggregate_revenue_at_risk(
         placeholders = ", ".join(f":p{i}" for i in range(len(product_urls)))
         params = {f"p{i}": url for i, url in enumerate(product_urls)}
         params["shop"] = shop
+        # elite-hardening-allowed: ":p0/:p1..." placeholders from enumerate (bind names only, no user input)
         rows = db.execute(
             text(f"""
                 SELECT product_url, COUNT(*) AS views

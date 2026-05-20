@@ -212,22 +212,57 @@ def test_production_scan_quiet_green() -> None:
 # ──────────────────────────────────────────────────────────────────────
 # 7. Aliased-events known gap — documented behaviour, not a bug.
 # ──────────────────────────────────────────────────────────────────────
-def test_aliased_events_table_is_known_gap() -> None:
-    """``FROM events e WHERE e.timestamp >= :c`` is NOT covered by
-    this audit (the alias is not resolved). In practice the codebase
-    rarely aliases the events table — the bare-``timestamp``-in-
-    ``FROM events`` form catches the canonical 35796ae shape.
+def test_aliased_events_table_now_covered() -> None:
+    """``FROM events e WHERE e.timestamp >= :c`` IS now covered by
+    Pass 3 (alias resolution). Born 2026-05-20 closing the "accepted
+    limits aren't 11/10" gap — extracted from the founder pushback
+    that documented tradeoffs aren't acceptable for a top-1 project.
 
-    This test pins the known limitation so a future change that
-    decides to handle aliases sees the gap acknowledged explicitly.
+    The audit now parses `FROM events <alias>` / `FROM events AS <alias>`
+    from the SQL body and treats `<alias>.timestamp` as the canonical
+    epoch-ms column.
     """
     findings = find_violations_in_sql(
         "SELECT * FROM events e WHERE e.timestamp >= :c"
     )
-    # Known gap: the alias `e.` makes Pass 1 miss (only `events.` is
-    # in EPOCH_MS_COLUMN_PATTERNS), and Pass 2's lookbehind rejects
-    # `e.timestamp` because of the preceding `.`. Document, don't fix
-    # — until a real aliased-events bug surfaces.
+    assert len(findings) >= 1
+    assert "e.timestamp" in findings[0][0]
+
+
+def test_aliased_events_with_AS_keyword() -> None:
+    """`FROM events AS e WHERE e.timestamp >= :c` also detected."""
+    findings = find_violations_in_sql(
+        "SELECT * FROM events AS e WHERE e.timestamp >= :c"
+    )
+    assert len(findings) >= 1
+
+
+def test_aliased_join_events() -> None:
+    """`JOIN events ev ON ... WHERE ev.timestamp >= :c` detected."""
+    findings = find_violations_in_sql(
+        "SELECT * FROM shop_orders s JOIN events ev "
+        "ON s.shop_domain = ev.shop_domain "
+        "WHERE ev.timestamp >= :c"
+    )
+    assert len(findings) >= 1
+
+
+def test_aliased_safe_rhs_not_flagged() -> None:
+    """Aliased ref against int-ms bind name is safe."""
+    findings = find_violations_in_sql(
+        "SELECT * FROM events e WHERE e.timestamp >= :cutoff_ms"
+    )
+    assert findings == []
+
+
+def test_aliased_to_non_epoch_table_not_flagged() -> None:
+    """`FROM shop_orders s WHERE s.timestamp >= :c` is NOT flagged
+    (shop_orders.timestamp would be a PG timestamp, not bigint ms).
+    The audit only triggers Pass 3 when the alias maps to an
+    epoch-ms table (events / analytics_event / product_metrics)."""
+    findings = find_violations_in_sql(
+        "SELECT * FROM shop_orders s WHERE s.created_at >= :c"
+    )
     assert findings == []
 
 

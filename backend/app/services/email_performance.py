@@ -60,6 +60,7 @@ def record_email_event(
         return
 
     # Upsert: INSERT ON CONFLICT UPDATE
+    # elite-hardening-allowed: column from whitelist dict (the `col` value is looked up from a hardcoded mapping; the dict IS the guard)
     db.execute(text(f"""
         INSERT INTO merchant_email_stats (shop_domain, email_type, {col}, updated_at)
         VALUES (:shop, :etype, 1, :now)

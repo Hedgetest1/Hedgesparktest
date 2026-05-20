@@ -213,12 +213,15 @@ def reader(db):
     assert findings == []
 
 
-def test_dynamic_sql_assumes_read() -> None:
-    """Dynamic SQL (variable reference) defaults to read — the audit
-    deliberately trades exhaustiveness for signal: most dynamic SQL
-    is SELECT analytics. Real writes are caught via db.add/flush/
-    commit/delete/merge and literal/f-string INSERT/UPDATE/DELETE
-    detection. Documented heuristic, not a bug."""
+def test_dynamic_sql_via_parameter_assumes_read() -> None:
+    """Cross-function dynamic SQL via PARAMETER defaults to read —
+    static AST cannot resolve the caller's value without call-graph
+    analysis. Documented limit (callers should add per-call opt-out
+    OR the helper's contract should be SELECT-only by convention).
+
+    The scope-walk improvement (2026-05-20) handles SAME-FUNCTION
+    variable assignments; cross-function parameters remain
+    unresolvable by single-pass AST."""
     src = '''
 def builder(db, sql):
     try:
@@ -228,6 +231,84 @@ def builder(db, sql):
 '''
     findings = _scan_snippet(src)
     assert findings == []
+
+
+def test_scope_walk_resolves_local_select_assignment() -> None:
+    """`query = "SELECT ..."; db.execute(text(query))` is resolved by
+    scope-walk to SELECT → not flagged. Born 2026-05-20 closing the
+    "assume-read" gap (§21 11/10 pushback)."""
+    src = '''
+def reader(db):
+    query = "SELECT * FROM merchants WHERE id = :id"
+    try:
+        db.execute(text(query), {"id": 1})
+    except Exception:
+        log.warning("ok")
+'''
+    findings = _scan_snippet(src)
+    assert findings == []
+
+
+def test_scope_walk_detects_local_update_assignment() -> None:
+    """`query = "UPDATE ..."; db.execute(text(query))` IS resolved
+    by scope-walk and flagged as a write. This is the structural
+    close of the "dynamic SQL → assume-read" gap (§21 11/10 pushback).
+    """
+    src = '''
+def updater(db):
+    query = "UPDATE merchants SET flag=true WHERE id=:id"
+    try:
+        db.execute(text(query), {"id": 1})
+    except Exception:
+        log.warning("ok")
+'''
+    findings = _scan_snippet(src)
+    assert len(findings) == 1
+
+
+def test_scope_walk_detects_local_insert_assignment() -> None:
+    """Variable bound to literal INSERT → flagged."""
+    src = '''
+def inserter(db):
+    sql = "INSERT INTO foo (v) VALUES (:v)"
+    try:
+        db.execute(text(sql), {"v": 1})
+    except Exception:
+        log.warning("ok")
+'''
+    findings = _scan_snippet(src)
+    assert len(findings) == 1
+
+
+def test_scope_walk_picks_latest_assignment() -> None:
+    """When variable is reassigned, scope-walk picks the LATEST
+    pre-cutoff assignment."""
+    src = '''
+def mutator(db):
+    query = "SELECT 1"
+    query = "DELETE FROM foo WHERE id=:id"
+    try:
+        db.execute(text(query), {"id": 1})
+    except Exception:
+        log.warning("ok")
+'''
+    findings = _scan_snippet(src)
+    assert len(findings) == 1
+
+
+def test_scope_walk_resolves_fstring_assignment() -> None:
+    """Variable bound to f-string with INSERT/UPDATE/DELETE prefix is
+    correctly resolved."""
+    src = '''
+def fstring_writer(db, val):
+    query = f"UPDATE foo SET v={val} WHERE id=1"
+    try:
+        db.execute(text(query))
+    except Exception:
+        log.warning("ok")
+'''
+    findings = _scan_snippet(src)
+    assert len(findings) == 1
 
 
 def test_with_explain_excluded() -> None:

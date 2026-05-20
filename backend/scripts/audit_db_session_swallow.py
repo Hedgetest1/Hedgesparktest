@@ -193,46 +193,111 @@ def _is_savepoint_ctx(with_node: ast.With) -> bool:
     return False
 
 
-def _extract_sql(call: ast.Call) -> str | None:
-    """If call is db.execute(text("...")) or db.execute("...") or
-    db.execute(text(f"...")), return the UPPER-stripped SQL prefix
-    from the first concrete fragment. Returns None when the SQL is
-    too dynamic to peek at (variable reference / .format() / etc.).
-    """
-    if not call.args:
-        return None
-    arg = call.args[0]
-    # text("...") and text(f"...")
-    if isinstance(arg, ast.Call):
-        f = arg.func
+def _extract_sql_from_node(node: ast.AST) -> str | None:
+    """Extract upper-stripped SQL prefix from a node (Constant string,
+    JoinedStr, or text(...) Call wrapping either). Returns None if
+    the node doesn't resolve to a literal SQL fragment."""
+    # text(...) Call wrapping literal
+    if isinstance(node, ast.Call):
+        f = node.func
         is_text_call = (
             (isinstance(f, ast.Name) and f.id == "text")
             or (isinstance(f, ast.Attribute) and f.attr == "text")
         )
-        if is_text_call and arg.args:
-            inner = arg.args[0]
-            if isinstance(inner, ast.Constant) and isinstance(inner.value, str):
-                return inner.value.strip().upper()
-            if isinstance(inner, ast.JoinedStr) and inner.values:
-                # peek at the first FormattedValue's leading Constant
-                first = inner.values[0]
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    return first.value.strip().upper()
-    # Direct string literal: db.execute("UPDATE ...")
-    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-        return arg.value.strip().upper()
-    # f-string: db.execute(f"UPDATE ...")
-    if isinstance(arg, ast.JoinedStr) and arg.values:
-        first = arg.values[0]
+        if is_text_call and node.args:
+            return _extract_sql_from_node(node.args[0])
+    # Direct string literal
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value.strip().upper()
+    # f-string: peek leading Constant
+    if isinstance(node, ast.JoinedStr) and node.values:
+        first = node.values[0]
         if isinstance(first, ast.Constant) and isinstance(first.value, str):
             return first.value.strip().upper()
     return None
 
 
-def _is_write_call(call: ast.Call, session_names: set[str]) -> tuple[bool, str]:
+def _resolve_variable_in_scope(name: str, func: ast.AST, cutoff_line: int) -> str | None:
+    """For a variable `name` referenced at `cutoff_line`, scan the
+    enclosing function body for the LATEST assignment `name = <value>`
+    BEFORE cutoff_line and try to extract the SQL prefix from <value>.
+
+    Returns the upper-stripped SQL string if resolvable, None
+    otherwise. Closes the "dynamic SQL → assume-read" gap (§21
+    11/10 pushback) where a developer writes::
+
+        query = "UPDATE merchants SET x=1"
+        db.execute(text(query))
+
+    Without resolution, the audit silently treated this as read-only.
+    """
+    latest_sql: str | None = None
+    latest_line = -1
+    for n in ast.walk(func):
+        if not isinstance(n, ast.Assign):
+            continue
+        if n.lineno >= cutoff_line:
+            continue
+        for tgt in n.targets:
+            if isinstance(tgt, ast.Name) and tgt.id == name:
+                sql = _extract_sql_from_node(n.value)
+                if sql is not None and n.lineno > latest_line:
+                    latest_sql = sql
+                    latest_line = n.lineno
+    return latest_sql
+
+
+def _extract_sql(call: ast.Call, func: ast.AST | None = None) -> str | None:
+    """If call is db.execute(text("...")) or db.execute("...") or
+    db.execute(text(f"...")) or db.execute(text(<variable>)), return
+    the UPPER-stripped SQL prefix. Returns None when the SQL is too
+    dynamic to peek at (parameter / .format() / cross-function flow).
+
+    The `func` parameter enables scope-walk variable resolution:
+    when the SQL argument is a bare Name, walk the enclosing function
+    for the latest assignment and extract from there. Born 2026-05-20
+    closing the "dynamic SQL → assume-read" gap (§21 11/10 pushback).
+    """
+    if not call.args:
+        return None
+    arg = call.args[0]
+    # text("...") / text(f"...") / direct literal / f-string
+    sql = _extract_sql_from_node(arg)
+    if sql is not None:
+        return sql
+    # text(<Name>) — scope-walk resolution
+    if (
+        isinstance(arg, ast.Call)
+        and func is not None
+    ):
+        f = arg.func
+        is_text_call = (
+            (isinstance(f, ast.Name) and f.id == "text")
+            or (isinstance(f, ast.Attribute) and f.attr == "text")
+        )
+        if is_text_call and arg.args and isinstance(arg.args[0], ast.Name):
+            return _resolve_variable_in_scope(
+                arg.args[0].id, func, arg.lineno
+            )
+    # Direct Name as first arg: db.execute(<Name>)
+    if isinstance(arg, ast.Name) and func is not None:
+        return _resolve_variable_in_scope(arg.id, func, call.lineno)
+    return None
+
+
+def _is_write_call(
+    call: ast.Call,
+    session_names: set[str],
+    func: ast.AST | None = None,
+) -> tuple[bool, str]:
     """True + description iff this call is a write on a session-named receiver.
 
     Returns (is_write, label) where label is e.g. "db.add" / "db.execute(UPDATE)".
+
+    The `func` parameter enables scope-walk SQL resolution for
+    `db.execute(text(<variable>))` patterns: when the SQL is in a
+    local variable, the audit walks back to its assignment instead of
+    blindly assuming read.
     """
     f = call.func
     if not isinstance(f, ast.Attribute):
@@ -244,7 +309,7 @@ def _is_write_call(call: ast.Call, session_names: set[str]) -> tuple[bool, str]:
     if attr in _WRITE_ATTRS:
         return True, f"{recv.id}.{attr}"
     if attr == "execute":
-        sql = _extract_sql(call)
+        sql = _extract_sql(call, func)
         if sql is None:
             # Dynamic / variable-referenced SQL: signal-noise tradeoff.
             # Empirically, ~90% of dynamic-SQL execute calls are SELECT
@@ -371,7 +436,9 @@ class _SwallowVisitor(ast.NodeVisitor):
                 # session calls are filtered out at the write-detection step.
                 if not session_params:
                     continue
-                is_w, label = _is_write_call(n, session_params)
+                # Pass the enclosing function for variable scope-walk
+                # resolution (`db.execute(text(<variable>))` lookup).
+                is_w, label = _is_write_call(n, session_params, func=fn)
                 if is_w:
                     writes.append((n, label))
         if not writes:

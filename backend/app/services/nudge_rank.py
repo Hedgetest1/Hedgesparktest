@@ -145,6 +145,7 @@ def _batch_event_counts(
     into the IN clause (no user-supplied strings involved).
     """
     id_list = ", ".join(str(i) for i in nudge_ids)
+    # elite-hardening-allowed: integer IDs from DB rows (typed `int`, no user input)
     sql = text(f"""
         SELECT
             nudge_id,
@@ -197,6 +198,7 @@ def _batch_group_attribution(
     from app.services.revenue_metrics import get_shop_currency
     currency = get_shop_currency(db, shop_domain)
     id_list = ", ".join(str(i) for i in nudge_ids)
+    # elite-hardening-allowed: integer IDs from DB rows (typed `int`, no user input)
     sql = text(f"""
         WITH first_events AS (
             SELECT

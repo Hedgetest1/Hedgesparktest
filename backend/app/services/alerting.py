@@ -486,6 +486,7 @@ def auto_resolve_alerts(
     # session-rollback: ok — `with db.begin_nested():` (next line) is the SAVEPOINT; outer except observes release-failure but the SAVEPOINT auto-rollback already cleaned the txn. Heuristic missed the SAVEPOINT because the try body is multi-stmt with the `with` as the first child.
     try:
         with db.begin_nested():
+            # elite-hardening-allowed: {where} interpolated from hardcoded clauses ("source=:source", "alert_type=:alert_type", "shop_domain=:shop_domain", "resolved=false") joined with " AND ". No user input enters the SQL — only bind values are user-supplied (bound via params).
             result = db.execute(
                 text(
                     f"UPDATE ops_alerts SET resolved=true, resolved_at=NOW() "

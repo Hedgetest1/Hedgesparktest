@@ -162,6 +162,7 @@ def repeat_rate_by_time(
     db: Session, shop: str, start: datetime, end: datetime, grain: str
 ) -> list[dict[str, Any]]:
     bucket = _time_bucket_clause(grain)
+    # elite-hardening-allowed: {bucket} from _time_bucket_clause which returns one of 3 hardcoded `to_char(...)` strings selected by a whitelisted `grain` ∈ {"day", "week", "month"}
     rows = db.execute(text(
         f"""
         WITH per_bucket AS (
@@ -192,6 +193,7 @@ def customer_ltv_by_time(
     db: Session, shop: str, start: datetime, end: datetime, grain: str
 ) -> list[dict[str, Any]]:
     bucket = _time_bucket_clause(grain)
+    # elite-hardening-allowed: {bucket} from _time_bucket_clause which returns one of 3 hardcoded `to_char(...)` strings selected by a whitelisted `grain` ∈ {"day", "week", "month"}
     rows = db.execute(text(
         f"""
         SELECT {bucket} AS bucket,

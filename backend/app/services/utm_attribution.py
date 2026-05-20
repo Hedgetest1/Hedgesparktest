@@ -107,6 +107,7 @@ def get_utm_attribution(
     source_order = "ASC" if model == "first_touch" else "DESC"
 
     try:
+        # elite-hardening-allowed: "ASC"/"DESC" from ternary on whitelisted `model` value (no user input enters the SQL)
         rows = db.execute(
             text(f"""
                 WITH visitor_sources AS (

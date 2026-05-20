@@ -133,6 +133,48 @@ _FROM_OR_JOIN_EVENTS_RE = re.compile(
     r"\b(?:FROM|JOIN)\s+events\b", re.IGNORECASE
 )
 
+# Parse `FROM <table> <alias>` / `JOIN <table> <alias>` / `FROM <table> AS <alias>`
+# from a SQL body. Returns dict mapping alias → table for the epoch-ms tables.
+# This closes the §21 aliased-events gap (e.g. `FROM events e WHERE e.timestamp ...`)
+# without ad-hoc handling per table. Born 2026-05-20 after the founder
+# "accepted limits aren't 11/10" pushback.
+_EPOCH_MS_TABLES = {"events", "analytics_event", "product_metrics"}
+_TABLE_ALIAS_RE = re.compile(
+    r"\b(?:FROM|JOIN)\s+"
+    r"(?P<table>events|analytics_event|product_metrics)\b"
+    r"(?:\s+AS)?"
+    r"\s+(?P<alias>[A-Za-z_]\w*)"
+    r"(?=\s|$|,|;|\)|\bON\b|\bWHERE\b|\bUSING\b)",
+    re.IGNORECASE,
+)
+
+
+def _extract_aliases(sql_body: str) -> dict[str, str]:
+    """Extract `<alias> → <table>` mappings for the epoch-ms tables in
+    the FROM/JOIN clauses. Skips reserved SQL keywords that can appear
+    after a table name (ON, WHERE, USING, AS).
+    """
+    aliases: dict[str, str] = {}
+    reserved = {"on", "where", "using", "as", "left", "right", "inner",
+                "outer", "full", "cross", "natural", "join", "group",
+                "order", "having", "limit", "offset", "for", "with",
+                "select"}
+    for m in _TABLE_ALIAS_RE.finditer(sql_body):
+        alias = m.group("alias")
+        if alias.lower() in reserved:
+            continue
+        aliases[alias] = m.group("table").lower()
+    return aliases
+
+
+def _aliased_cmp_re(alias: str) -> re.Pattern:
+    """Build a comparison regex for `<alias>.timestamp <op> <rhs>`.
+    Returns compiled pattern reusable across calls."""
+    return re.compile(
+        r"(?<![\w.])" + re.escape(alias) + r"\.(?P<col>timestamp)\s*" + _COMPARE_TAIL,
+        re.IGNORECASE,
+    )
+
 # Comparison pattern: <col> [op] <rhs>.
 #
 # RHS is captured as: one bare-token (no whitespace/comma/paren),
@@ -244,7 +286,7 @@ def find_violations_in_sql(sql_body: str) -> list[tuple[str, str]]:
     epoch-ms-column reference that sits in a comparison against an
     UNSAFE (Postgres-timestamp-typed) right-hand side.
 
-    Detection has two passes:
+    Detection has three passes:
 
     1. **Explicit refs** — ``events.timestamp``, ``ts_ms``,
        ``last_event_at``. Matched against ``_EXPLICIT_CMP_RE``.
@@ -257,7 +299,11 @@ def find_violations_in_sql(sql_body: str) -> list[tuple[str, str]]:
 
          SELECT COUNT(*) FROM events WHERE ... AND timestamp >= :c
 
-       Aliased refs (``e.timestamp``) are NOT covered — known gap.
+    3. **Aliased ``<alias>.timestamp`` refs** — when the SQL body
+       contains ``FROM events e`` or ``FROM events AS e`` (similarly
+       for analytics_event / product_metrics), ``e.timestamp`` is
+       treated as the table's epoch-ms column. Born 2026-05-20 closing
+       the "accepted limits aren't 11/10" gap.
     """
     findings: list[tuple[str, str]] = []
     normalized = _normalize_ws(sql_body)
@@ -279,6 +325,29 @@ def find_violations_in_sql(sql_body: str) -> list[tuple[str, str]]:
                 ctx_end = min(len(normalized), m.end() + 30)
                 findings.append(
                     ("timestamp (FROM events)", normalized[ctx_start:ctx_end])
+                )
+
+    # Pass 3: aliased refs — `<alias>.timestamp` where alias maps to an
+    # epoch-ms table via FROM/JOIN. Catches the previously-uncovered
+    # `FROM events e WHERE e.timestamp >= :c` shape.
+    aliases = _extract_aliases(normalized)
+    for alias, table in aliases.items():
+        # For ts_ms/last_event_at we already match the bare column name
+        # in Pass 1; only `timestamp` is ambiguous and needs alias-
+        # resolution to avoid false positives on non-epoch-ms tables.
+        # `events.timestamp` is BIGINT epoch-ms; `analytics_event.ts_ms`
+        # is similarly bigint but bare `ts_ms` matches Pass 1 already.
+        if table != "events":
+            continue
+        for m in _aliased_cmp_re(alias).finditer(normalized):
+            if _is_sql_type_context(normalized, m.start()):
+                continue
+            if _is_unsafe_rhs(m.group("rhs")):
+                ctx_start = max(0, m.start() - 30)
+                ctx_end = min(len(normalized), m.end() + 30)
+                findings.append(
+                    (f"{alias}.timestamp (FROM events {alias})",
+                     normalized[ctx_start:ctx_end])
                 )
 
     return findings

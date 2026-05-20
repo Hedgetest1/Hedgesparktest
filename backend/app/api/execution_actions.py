@@ -380,6 +380,7 @@ def get_execution_audience(
     else:
         where_clause = "AND ea.group_type = :group"
 
+    # elite-hardening-allowed: where clause from constant strings (no user input)
     rows = db.execute(
         text(f"""
             SELECT ea.visitor_id

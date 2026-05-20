@@ -864,6 +864,7 @@ def _populate_audience(conn, shop_domain: str, exec_id: str,
             params[f"group_{j}"] = r["group"]
             params[f"now_{j}"] = r["now"]
 
+        # elite-hardening-allowed: parameter names from enumerate (`:visitor_0`, `:group_0`, etc.) — bind placeholders only, no user input
         conn.execute(
             text(f"""
                 INSERT INTO execution_audiences
@@ -873,6 +874,7 @@ def _populate_audience(conn, shop_domain: str, exec_id: str,
             """),
             params,
         )
+        # elite-hardening-allowed: parameter names from enumerate — bind placeholders only, no user input
         conn.execute(
             text(f"""
                 INSERT INTO execution_tracking
