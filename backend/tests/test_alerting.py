@@ -29,30 +29,29 @@ def test_write_alert_persists(db):
     assert row[0] == "warning"
 
 
-def test_step2_savepoint_isolates_flush_failure_from_alert_row(db):
-    """Pin the §21 Stage-2 fix (2026-05-20): a Step-2 FLUSH failure
-    MUST NOT poison the caller's session NOR lose the alert row.
+def test_step2_savepoint_happy_path_with_simulated_flush_failure(db):
+    """Behavioral smoke for the §21 Stage-2 fix (2026-05-20): when
+    Step-2 delivery flush fails, write_alert still returns a usable
+    alert object and the next write_alert call still produces a row.
 
-    Before the fix, alerting.py had a nested flush at line :338 inside
-    Step 2's except handler. If the outer flush at :334 failed, the
-    session was poisoned (PendingRollbackError); the next caller op
-    (emit() at :356 OR the test_caller's next DB op) raised
-    InFailedSqlTransaction.
+    **HONESTY NOTE (anti-flattery correction post-empirical proof
+    2026-05-20)**: this test is NOT mutation-sensitive for the
+    savepoint_scope wrap, despite earlier docstring claims. An
+    empirical proof (monkey-patch savepoint_scope to no-op + run
+    this test) PASSED, meaning the test cannot distinguish
+    "savepoint_scope present" from "savepoint_scope stripped". The
+    pytest test fixture wraps every test in its OWN outer savepoint
+    (via conftest's SAVEPOINT-per-test pattern), which absorbs the
+    Step-2 flush failure regardless of whether alerting.py wraps
+    Step 2 internally. Earlier §22.7 ship-gate Agent verification
+    used code analysis and missed this — empirical verification
+    (this docstring's correction) caught the false claim.
 
-    The fix wraps Step 2 (delivery_status update + flush) in
-    `with savepoint_scope(db):`. A flush failure inside Step 2 rolls
-    back the savepoint (Step 2's mutation reverted) while the alert
-    row from Step 1 (db.add(alert); db.flush()) remains durable.
-
-    **Mutation-sensitive**: this test fires a controlled flush failure
-    on the SECOND flush call (Step 2's flush, INSIDE the savepoint
-    body). If the savepoint_scope wrap is stripped, the failure
-    cascades to the caller's session and the follow_up write_alert
-    raises InFailedSqlTransaction. The §22.7 ship-gate Agent
-    (2026-05-20) flagged the earlier version of this test as vacuous
-    because it patched delivery to raise BEFORE any flush — both
-    with-savepoint and stripped-savepoint passed. THIS version
-    actually fails the flush.
+    The MUTATION-SENSITIVE assertion lives in
+    `test_alerting_step2_uses_savepoint_scope_structural` (below).
+    This test is kept as a happy-path smoke — it does verify that
+    write_alert returns an alert object even when Step-2 fails, and
+    that the subsequent call doesn't crash on imports/setup.
     """
     # Patch db.flush with a counting wrapper that fails on the 2nd
     # invocation (Step 2's flush) AND succeeds otherwise. Step 1's
@@ -112,6 +111,44 @@ def test_step2_savepoint_isolates_flush_failure_from_alert_row(db):
         summary="If this row exists, the session was clean post-Step-2-failure",
     )
     assert follow_up.id is not None
+
+
+def test_alerting_step2_uses_savepoint_scope_structural():
+    """STRUCTURAL mutation-sensitive contract for the §21 Stage-2 fix
+    (commit 855390a): `write_alert` MUST wrap Step 2 in
+    `with savepoint_scope(db):`. Stripping it (refactor removes the
+    wrap) breaks this assertion directly.
+
+    Born 2026-05-20 after empirical mutation proof revealed the
+    behavioral counterpart
+    (test_step2_savepoint_happy_path_with_simulated_flush_failure)
+    was VACUOUS: the pytest test fixture absorbs Step-2 failures in
+    its outer savepoint regardless of whether alerting.py wraps
+    internally. Behavioral tests cannot catch the mutation in this
+    environment; a structural assertion is the load-bearing pin.
+
+    Production-equivalent correctness is verified at the
+    savepoint_scope PRIMITIVE level (app/core/database.py contract
+    tests, commit 42fc791). write_alert's correctness = composition
+    of (this structural assertion) + (savepoint_scope primitive
+    contract). Together they catch any future refactor that:
+      - removes `with savepoint_scope(db):` from write_alert, OR
+      - breaks savepoint_scope's swallow-recovery guarantee.
+
+    Caught the failure mode the §22.7 Agent missed: code analysis
+    cannot see the test-fixture-savepoint interference. Empirical
+    proof catches it. Ship correction same-session (anti-flattery
+    discipline).
+    """
+    import inspect
+    import app.services.alerting as alerting_mod
+
+    src = inspect.getsource(alerting_mod.write_alert)
+    assert "with savepoint_scope(db):" in src, (
+        "§21 Stage-2 structural fix (855390a) was stripped: "
+        "write_alert no longer wraps Step 2 in savepoint_scope. "
+        "Restore the wrap or document why the class can be reopened."
+    )
 
 
 def test_get_unresolved_alerts(db):
