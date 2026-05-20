@@ -202,6 +202,7 @@ export function MonthlyTargetsCard({
             </span>
             Sample preview
           </div>
+          {/* data-truth-allowed: "Sample preview" empty-state array (rendered only when progress.length === 0; never receives merchant data) */}
           <div className="space-y-2 opacity-50">
             {[
               { label: "Monthly revenue", current: "$28.4K", target: "$35K", pct: 81, color: "#34d399" },

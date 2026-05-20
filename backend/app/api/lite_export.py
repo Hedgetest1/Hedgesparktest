@@ -82,6 +82,7 @@ def _rows_for_rars(db: Session, shop: str) -> tuple[list[str], list[dict[str, An
     data = get_revenue_at_risk(db, shop)
     rows: list[dict[str, Any]] = []
     ts = _now_iso()
+    # data-truth-allowed: get_revenue_at_risk resolves shop currency via get_shop_currency; "USD" is the last-resort fallback for a brand-new shop with no orders yet
     ccy = data.get("currency") or "USD"
     for c in data.get("components") or []:
         rows.append({
@@ -112,6 +113,7 @@ def _rows_for_benchmarks(db: Session, shop: str) -> tuple[list[str], list[dict[s
     from app.services.benchmarks import get_merchant_benchmark_report
     data = get_merchant_benchmark_report(db, shop)
     ts = _now_iso()
+    # data-truth-allowed: get_merchant_benchmark_report resolves shop currency upstream; "USD" is cold-start fallback only
     ccy = data.get("currency") or "USD"
     headers = [
         "shop", "generated_at", "currency", "band", "peer_count",
@@ -180,6 +182,7 @@ def _rows_for_pnl(db: Session, shop: str) -> tuple[list[str], list[dict[str, Any
     from app.services.pnl_engine import get_pnl_report
     data = get_pnl_report(db, shop, window_days=30)
     ts = _now_iso()
+    # data-truth-allowed: get_pnl_report resolves shop currency upstream; "USD" is cold-start fallback only
     ccy = data.get("currency") or "USD"
     headers = [
         "shop", "generated_at", "window_days", "currency",

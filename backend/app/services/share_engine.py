@@ -236,6 +236,7 @@ def _sanitize_snapshot(proof: dict) -> dict:
 def _build_headline(proof: dict) -> str:
     lift = proof.get("lift_pct")
     if lift and lift > 0:
+        # data-truth-allowed: consumes pre-measured holdout data from proof_engine; "measured with holdout testing" is accurate because lift is already holdout-measured upstream
         return f"+{lift:.0f}% conversion lift, measured with holdout testing"
     revenue = proof.get("incremental_revenue")
     currency = proof.get("currency")

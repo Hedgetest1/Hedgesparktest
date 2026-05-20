@@ -245,6 +245,7 @@ def _build_scarcity_nudge_payload(candidate: dict) -> dict:
     # Currency may be populated by the candidate producer (hot_segment_monitor)
     # via get_shop_currency. Fallback to USD only when candidate didn't
     # carry it (e.g. legacy producers / synthetic test fixtures).
+    # data-truth-allowed: defensive fallback for legacy producers; hot_segment_monitor populates via get_shop_currency
     currency         = candidate.get("currency") or "USD"
 
     checklist = [

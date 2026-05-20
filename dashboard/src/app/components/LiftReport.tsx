@@ -163,6 +163,7 @@ export function LiftReport({
           >
             Why this matters
           </div>
+          {/* data-truth-allowed: explanatory prose ("+€X" is generic claim format, not a rendered amount) */}
           <p className="text-[14px] leading-relaxed text-slate-300">
             Triple Whale claims lift from observation alone. Northbeam
             runs MMM models. Both can be wrong by 30%+ for any given fix
@@ -612,6 +613,7 @@ function EmptyPreview({
             <div className="mt-1 text-[12.5px] text-slate-400">over 1,840 visitors</div>
           </div>
           <div>
+            {/* data-truth-allowed: EmptyPreview sample-data display (component is empty-state preview, never receives real merchant data) */}
             <div className="text-[1.5rem] font-bold leading-none tabular-nums text-emerald-300">
               €312
             </div>

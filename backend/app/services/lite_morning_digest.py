@@ -96,6 +96,7 @@ def _fmt_money(amount: float, currency: str = "USD") -> str:
         n = 0.0
     sign = "-" if n < 0 else ""
     abs_n = abs(n)
+    # data-truth-allowed: symbol mapper IS the currency source for email-safe rendering; same pattern as revenue_triggers._SYMBOLS
     sym = {"EUR": "€", "GBP": "£"}.get(currency, "$" if currency == "USD" else f"{currency} ")
     if abs_n >= 10_000:
         return f"{sign}{sym}{abs_n/1000:.1f}k"
@@ -522,6 +523,7 @@ def _build_email(shop_domain: str, brief: dict, db: Session) -> Tuple[str, str, 
     period = datetime.now(timezone.utc).strftime("%A · %B %d, %Y")
 
     rich = _gather_rich_context(db, shop_domain)
+    # data-truth-allowed: _gather_rich_context resolves shop currency upstream via get_shop_currency; "USD" is cold-start fallback
     currency = rich.get("currency") or "USD"
 
     signals_count = int(brief.get("signals_count") or 0)

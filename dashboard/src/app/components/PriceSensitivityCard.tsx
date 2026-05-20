@@ -87,6 +87,7 @@ export function PriceSensitivityCard({
   }
 
   if (state === "empty" || !data) {
+    // data-truth-allowed: sampleBands rendered only in empty-state (no real merchant data); placeholders use $ as generic price-band labels
     const sampleBands = [
       { band: "<$20", cvr: 1.8, sweet: false },
       { band: "$20-50", cvr: 3.2, sweet: false },

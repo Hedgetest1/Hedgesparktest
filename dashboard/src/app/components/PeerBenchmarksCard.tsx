@@ -145,6 +145,7 @@ export function PeerBenchmarksCard({
           </span>
         </div>
         <h3 className="text-[15px] font-bold text-slate-200">How you compare to peers</h3>
+        {/* data-truth-allowed: "Sample" empty-state benchmark array (rendered when no peer-cohort data; never receives merchant data) */}
         <div className="mt-3 space-y-2 opacity-50">
           {[
             { label: "Conversion rate", you: "2.1%", peer: "2.4%", delta: "−0.3%", color: "#fbbf24" },

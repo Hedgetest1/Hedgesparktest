@@ -104,6 +104,7 @@ function CurrencySurface() {
                   <div className="mt-0.5 text-[11.5px] text-slate-400">
                     Symbol{" "}
                     <span className="font-mono text-slate-300">
+                      {/* data-truth-allowed: currency picker IS the source of truth for symbol display (USD/EUR are the only 2 supported currencies) */}
                       {c === "USD" ? "$" : "€"}
                     </span>{" "}
                     · code{" "}

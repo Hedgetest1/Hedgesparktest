@@ -361,6 +361,7 @@ def generate_recommendations(db: Session) -> list[dict]:
     # 2. LLM cost growth
     llm = forecast["llm_daily_cost_eur"]
     if llm["monthly_projected"] >= _THRESHOLDS["llm_monthly_warn_eur"]:
+        # data-truth-allowed: LLM internal budget is €-denominated by policy (CLAUDE.md §8.1); not a merchant display
         recs.append({
             "resource_type": "llm_budget",
             "title": "Review LLM budget — cost growth detected",

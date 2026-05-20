@@ -363,6 +363,7 @@ def compute_price_sensitivity(db: Session, shop_domain: str) -> dict:
     product_prices = _build_product_prices(price_rows)
 
     if not product_prices:
+        # data-truth-allowed: defensive fallback after _resolve_currency_sensitivity (helper has own internal fallback)
         currency_empty = _resolve_currency_sensitivity(db, shop_domain) or "USD"
         return _empty_sensitivity_response(shop_domain, currency_empty, now)
 

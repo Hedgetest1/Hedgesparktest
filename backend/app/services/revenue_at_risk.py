@@ -558,6 +558,7 @@ def get_revenue_at_risk(db: Session, shop_domain: str, plan: str = "pro") -> dic
     )
     result = report.to_dict()
     result["_prevent_evidence"] = prevent_evidence
+    # data-truth-allowed: defensive guard at response assembly — same safety-net pattern as _DEFENSIVE_FALLBACK_RE (currency resolved upstream)
     result["currency"] = currency or "USD"
 
     try:

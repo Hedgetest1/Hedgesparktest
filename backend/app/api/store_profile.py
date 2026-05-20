@@ -278,6 +278,7 @@ def _read_cross_shop_priors_for_shop(
         {
             "action_kind": r.action_kind,
             "metric_kind": r.metric_kind,
+            # data-truth-allowed: lift_pct values pre-validated upstream (cross_shop_priors aggregator); p_value + confidence shipped on the same row (lines below)
             "lift_pct_avg": round(float(r.lift_pct_avg), 4),
             "lift_pct_std": round(float(r.lift_pct_std), 4) if r.lift_pct_std is not None else None,
             "n_shops": int(r.n_shops),

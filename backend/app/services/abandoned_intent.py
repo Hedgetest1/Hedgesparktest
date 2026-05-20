@@ -129,6 +129,7 @@ def _resolve_currency(db: Session, shop_domain: str) -> str:
         from app.core.silent_fallback import record_silent_return
         record_silent_return("abandoned_intent.resolve_currency")
         log.warning("abandoned_intent: currency lookup failed: %s", exc)
+        # data-truth-allowed: except-block last-resort fallback; failure surfaces via record_silent_return metric
         return "USD"
 
 

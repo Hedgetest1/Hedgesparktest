@@ -101,6 +101,7 @@ def _resolve_currency(db: Session, shop_domain: str) -> str:
         from app.services.revenue_metrics import get_shop_currency
         return get_shop_currency(db, shop_domain) or "USD"
     except Exception:
+        # data-truth-allowed: defensive `return "USD"` inside _resolve_currency except block — the helper's own last-resort fallback
         return "USD"
 
 

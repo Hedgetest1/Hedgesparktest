@@ -174,7 +174,8 @@ export function RevenueAtRiskHero({
           which ALWAYS evaluated true (netRoi = prevented − 99 for Pro,
           = prevented for Lite) and shipped a misleading "Already
           prevented €0" row on fresh shops. Rule: render the strip only
-          when there's real prevented value to show. */}
+          when there's real prevented value to show.
+          data-truth-allowed: JSX comment prose ("€0" refers to historical bug behavior, not rendered) */}
       {prevented > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-400/15 bg-emerald-500/[0.04] px-4 py-3">
           <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-300">

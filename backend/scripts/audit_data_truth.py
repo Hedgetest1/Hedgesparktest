@@ -48,44 +48,49 @@ _FILE_ALLOWLIST: set[str] = {
     "app/services/evolution_bet_governance.py",
 }
 
+# In-source opt-out marker — line-shift-resistant by construction. A finding
+# is suppressed when `data-truth-allowed: <reason>` appears within ±_MARKER_RADIUS
+# lines. Refactors that move the flagged site move the marker with it; the
+# legacy `_LINE_ALLOWLIST` below is being phased out because file-edits drift
+# its line keys silently (the 16-entry dict was discovered 2026-05-20 to be
+# no-op for 0 current findings, with 45 warnings firing un-documented since
+# some past refactor).
+#
+# No comment-prefix is required: a multi-line `{/* ... */}` JSX block has no
+# `*` on continuation lines, so requiring `(?:#|//|/\*|\*)` would silently
+# skip the marker. The literal token `data-truth-allowed:` is rare enough
+# that ambient false positives are not a concern. Pattern lives in
+# `feedback_marker_based_audit_allowlist.md`.
+_MARKER_RE = re.compile(r"data-truth-allowed\s*:\s*\S+", re.IGNORECASE)
+_MARKER_RADIUS = 10  # ±10 lines: covers the marker placed at the top of a
+                     # 5-row hardcoded-array literal where every row fires.
+
+
+def _marker_allowlisted(
+    lineno: int, lines: list[str], radius: int = _MARKER_RADIUS,
+) -> bool:
+    """True if `data-truth-allowed: <reason>` marker appears within ±radius
+    lines (1-indexed lineno). Same token works in Python `#`, TS/TSX `//`,
+    and JSX `{/* */}` block-comment continuations."""
+    lo = max(0, lineno - 1 - radius)
+    hi = min(len(lines), lineno - 1 + radius + 1)
+    return any(_MARKER_RE.search(lines[i]) for i in range(lo, hi))
+
+
 # Per-line allowlist for narrow, manually-verified false positives.
 # Format: "<rel_path>:<lineno>" → one-line justification.
-_LINE_ALLOWLIST: dict[str, str] = {
-    # _SYMBOLS mapper — legacy local copy of the currency helper, safe.
-    "app/services/revenue_triggers.py:271": "_SYMBOLS mapper dict is the currency source, not a hardcoded symbol",
-    # LLM internal budget is €-denominated by policy (dev floor €10, scales per-merchant; see llm_budget.py).
-    "app/services/scaling_intelligence.py:368": "LLM budget is €-denominated by policy (CLAUDE.md §8.1)",
-    "app/services/scaling_intelligence.py:369": "LLM budget is €-denominated by policy (CLAUDE.md §8.1)",
-    # Shopify webhook payload already includes currency — this is the default
-    # for a payload that explicitly lacks it, not a merchant-facing display.
-    "app/services/order_ingestion.py:274": "Shopify webhook default — ingestion-layer safety net, not display",
-    "app/services/pnl_engine.py:162": "Exception-path fallback after get_shop_currency() raises — defensive",
-    "app/services/storefront_preview.py:156": "Pre-signup demo: currency unknown; narrative explicitly labels 'in your store's currency'",
-    "app/api/lite_extras.py:1889": "_CHURN_FORECAST_SQL — SUM(total_price) is INTENTIONALLY currency-agnostic for the churn cohort: the signal is order frequency (LAG + PERCENTILE_CONT median gap), not amount. A multi-currency customer buying in both USD and EUR is still ONE identity for churn; filtering by currency would corrupt the signal by excluding cross-currency customers. Documented in the module constant's preceding comment block. Pre-refactor this passed because the composer body had `currency = get_shop_currency(db, shop)` within the 50-line proximity window; post-refactor (SQL hoisted to module constant) that proximity is broken, but the design intent is preserved.",
-    # ─── stats_claim_without_significance allowlist (manually verified) ──
-    "app/api/playbook.py:219": "Peer-network aggregate: avg_lift computed from SQL AVG((treatment_cvr - control_cvr) / control_cvr); per-row holdout is by construction, per-row significance is upstream in autonomous_actions writes (nudge_measurement).",
-    "app/api/playbook.py:220": "Peer-network aggregate: best_lift over holdout-measured rows — same source as avg_lift on line 219.",
-    "app/services/conversion_service.py:144": "expected_uplift is a PREDICTED value from a heuristic model; the key name explicitly says 'expected' not 'measured'. Not a claim about post-hoc lift.",
-    "app/services/share_engine.py:239": "share_engine consumes pre-measured holdout data from proof_engine — the message correctly says 'measured with holdout testing' because the lift is already holdout-measured by the time it reaches this file.",
-    # ─── Pydantic default-value allowlist (response_model `currency: str = "USD"`) ───
-    # These are default-currency literals on Pydantic response models.
-    # They are NOT hardcoded display currencies — the service layer
-    # overrides them with the shop's actual currency before serializing.
-    # The default is a safety net for cases where the service fails to
-    # resolve (e.g. brand-new merchant with no orders yet).
-    "app/api/mta.py:46": "Pydantic response_model default; service overrides with shop currency",
-    "app/api/mta.py:57": "Pydantic response_model default; service overrides with shop currency",
-    "app/api/benchmarks.py:55": "Pydantic response_model default; service overrides with shop currency",
-    # ─── Self-referential defensive fallbacks inside currency helpers ───
-    # The file's job IS currency resolution; the "USD" literal is the
-    # last-resort fallback if every lookup path fails. Not a display string.
-    "app/services/mta_engine.py:104": "Defensive `return \"USD\"` inside _resolve_currency except block — the helper's own fallback",
-    "app/services/revenue_at_risk.py:498": "Defensive `currency or \"USD\"` guard at response assembly — same safety-net pattern as _DEFENSIVE_FALLBACK_RE",
-    # NB: exception-handler fallbacks (currency = "USD" / _currency = "USD"
-    # / result["currency"] = "USD" inside `except Exception:`) are now
-    # auto-suppressed by _EXCEPTION_FALLBACK_LINE_RE — they used to need
-    # per-line allowlist entries. Widened on 2026-04-17.
-}
+#
+# EMPTIED 2026-05-20. The marker pattern above replaces this dict; the
+# 16 legacy entries were discovered silently no-op (line keys drifted
+# during refactors; auto-suppressors `_DEFENSIVE_FALLBACK_RE`,
+# `_PYDANTIC_FIELD_DEFAULT_RE`, `_EXCEPTION_FALLBACK_LINE_RE` widened
+# 2026-04-17 already absorbed most of them).
+#
+# **Kept as `dict[str, str]`** type only because removing it would break
+# `_allowlisted()` callsites that still reference it; populating it
+# again would re-introduce the silent drift class. New opt-outs MUST
+# use the in-source `# data-truth-allowed: <reason>` marker.
+_LINE_ALLOWLIST: dict[str, str] = {}
 
 # Per-line fallbacks that are DEFENSIVE (e.g. `get_shop_currency(db, shop) or "USD"`).
 # These are a safety net, not a hardcoded currency — the shop currency is
@@ -93,6 +98,20 @@ _LINE_ALLOWLIST: dict[str, str] = {
 # shop that has neither primary_currency nor order history.
 _DEFENSIVE_FALLBACK_RE = re.compile(
     r'(get_shop_currency|_dominant_currency|payload\.get\(["\']currency["\']\))\s*\([^)]*\)\s*or\s*["\']USD["\']',
+)
+
+# Wrapper around `payload.get("currency")` — matches both
+# `_safe_str(payload.get("currency")) or "USD"` and any other single-
+# function wrapping (e.g. `str(payload.get("currency")) or "USD"`). The
+# wrapper itself is irrelevant — what matters is that the value being
+# fallen-back-to-USD is sourced from a payload-get, which IS the same
+# ingestion-layer defensive shape as the bare `payload.get(...) or "USD"`.
+# Widened 2026-05-20 during the 45-finding audit_data_truth backlog close
+# to cover `app/services/order_ingestion.py:274` without modifying that
+# TIER_2 file. Pattern is narrow — requires `payload.get("currency")`
+# literally, so generic `"USD"` literals elsewhere stay flagged.
+_WRAPPED_PAYLOAD_FALLBACK_RE = re.compile(
+    r'[\w_]+\s*\(\s*payload\.get\s*\(\s*["\']currency["\']\s*\)\s*\)\s*or\s*["\']USD["\']',
 )
 
 # Pydantic model field declarations like `currency: str = "USD"` are
@@ -149,9 +168,15 @@ def _scan_files() -> list[tuple[Path, list[str]]]:
     return results
 
 
-def _allowlisted(filepath: str, lineno: int) -> bool:
+def _allowlisted(
+    filepath: str, lineno: int, lines: list[str] | None = None,
+) -> bool:
     key = f"{filepath}:{lineno}"
-    return key in _ALLOWLIST or key in _LINE_ALLOWLIST
+    if key in _ALLOWLIST or key in _LINE_ALLOWLIST:
+        return True
+    if lines is not None and _marker_allowlisted(lineno, lines):
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +264,7 @@ def check_money_aggregation(files: list[tuple[Path, list[str]]]) -> list[Finding
                 ]
                 context = "\n".join(stripped_ctx)
                 if not _CURRENCY_GUARD_RE.search(context):
-                    if not _allowlisted(rel, i):
+                    if not _allowlisted(rel, i, lines):
                         findings.append(Finding(
                             check="money_aggregation_no_currency",
                             file=rel, line=i, code=stripped,
@@ -288,6 +313,9 @@ def check_hardcoded_currency(files: list[tuple[Path, list[str]]]) -> list[Findin
                 # Defensive "currency = ... or 'USD'" fallbacks are safe
                 if _DEFENSIVE_FALLBACK_RE.search(line):
                     continue
+                # Wrapper-around-payload.get pattern (e.g. _safe_str(...))
+                if _WRAPPED_PAYLOAD_FALLBACK_RE.search(line):
+                    continue
                 # Pydantic response-model field defaults (`currency: str = "USD"`)
                 # are overridden by the service layer — not a hardcode.
                 if _PYDANTIC_FIELD_DEFAULT_RE.match(line):
@@ -299,7 +327,7 @@ def check_hardcoded_currency(files: list[tuple[Path, list[str]]]) -> list[Findin
                     preceding = "\n".join(lines[max(0, i - 5):i])
                     if re.search(r"except\s+Exception", preceding):
                         continue
-                if not _allowlisted(rel, i):
+                if not _allowlisted(rel, i, lines):
                     findings.append(Finding(
                         check="hardcoded_currency",
                         file=rel, line=i, code=stripped,
@@ -328,7 +356,7 @@ def check_timezone_safety(files: list[tuple[Path, list[str]]]) -> list[Finding]:
             continue
         for i, line in enumerate(lines, 1):
             if _DOUBLE_TZ_RE.search(line):
-                if not _allowlisted(rel, i):
+                if not _allowlisted(rel, i, lines):
                     findings.append(Finding(
                         check="double_timezone_conversion",
                         file=rel, line=i, code=line.strip(),
@@ -436,7 +464,7 @@ def check_division_by_zero(files: list[tuple[Path, list[str]]]) -> list[Finding]
             # Skip SQL string literals (NULLIF handles div-by-zero in SQL)
             if "NULLIF" in line.upper() or "nullif" in line.lower():
                 continue
-            if not _allowlisted(rel, i):
+            if not _allowlisted(rel, i, lines):
                 findings.append(Finding(
                     check="division_by_zero_unguarded",
                     file=rel, line=i, code=stripped[:120],
@@ -506,7 +534,7 @@ def check_stats_claims(files: list[tuple[Path, list[str]]]) -> list[Finding]:
             if stripped.startswith(("#", "//", "*", '"""', "'''")):
                 continue
             if _CLAIM_RE.search(line):
-                if not _allowlisted(rel, i):
+                if not _allowlisted(rel, i, lines):
                     findings.append(Finding(
                         check="stats_claim_without_significance",
                         file=rel, line=i, code=stripped[:120],
@@ -565,7 +593,7 @@ def check_cvr_independent_populations(files: list[tuple[Path, list[str]]]) -> li
                 ctx = "\n".join(lines[max(0, i - 20):i + 20])
                 if _CVR_SAFE_TOKEN_RE.search(ctx):
                     continue
-                if not _allowlisted(rel, i):
+                if not _allowlisted(rel, i, lines):
                     findings.append(Finding(
                         check="cvr_independent_populations",
                         file=rel, line=i, code=stripped[:120],
@@ -605,7 +633,7 @@ def check_hardcoded_credentials(files: list[tuple[Path, list[str]]]) -> list[Fin
             if _CRED_RE.search(line):
                 if "environ" in line or "os.getenv" in line or "config" in line.lower():
                     continue
-                if not _allowlisted(rel, i):
+                if not _allowlisted(rel, i, lines):
                     findings.append(Finding(
                         check="hardcoded_credentials",
                         file=rel, line=i, code=stripped[:80] + "..." if len(stripped) > 80 else stripped,
@@ -706,6 +734,9 @@ def check_frontend_hardcoded_currency(
                 # Skip lines that reference the central helper (they ARE
                 # routing through formatDisplayMoney).
                 if "formatDisplayMoney" in line or "createMoneyFormatter" in line:
+                    continue
+                # In-source marker opt-out (line-shift-resistant)
+                if _marker_allowlisted(i, lines):
                     continue
                 findings.append(Finding(
                     check="frontend_hardcoded_currency",

@@ -62,6 +62,7 @@ const WIN: ProofRow = {
   p_value: 0.023,
   visitors_measured: 1240,
   delta_eur_monthly: 2140,
+  // data-truth-allowed: WIN ProofRow constant — proof/showcase page is a static marketing showcase with hardcoded demo numbers (not rendered to merchants)
   delta_label: "+€2,140 / month",
   outcome_explanation:
     "Exposed group converted at 4.21% (cvr); holdout control at 3.94%. Difference statistically significant after 1,240 measured visitors. Action kept live.",
@@ -355,6 +356,7 @@ export default function ProofShowcasePage() {
               >
                 What we show you
               </div>
+              {/* data-truth-allowed: static showcase quote rendering — proof/showcase page is a marketing demonstration (not rendered to real merchants) */}
               <p className="text-[15px] leading-relaxed text-slate-200">
                 &ldquo;We helped you grow revenue +€2,140/month — proven
                 against a 247-visitor holdout, p=0.023.&rdquo;

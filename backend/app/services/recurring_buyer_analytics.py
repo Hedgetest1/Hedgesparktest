@@ -132,6 +132,7 @@ def compute_recurring_analytics(
     if not rows:
         return RecurringAnalyticsReport(
             shop_domain=shop_domain,
+            # data-truth-allowed: empty-state return; no orders means no currency can be derived from data; consumer renders explicit "no_data" branch
             currency="USD",
             lookback_days=lookback_days,
             recurring_count=0,
@@ -159,6 +160,7 @@ def compute_recurring_analytics(
         ) + 1
 
     # Shop currency = mode of order currencies in window
+    # data-truth-allowed: mode-of-orders fallback when currency_counter is empty (means rows had no currency, impossible by SQL contract — defensive only)
     shop_currency = (
         max(currency_counter.items(), key=lambda kv: kv[1])[0]
         if currency_counter else "USD"

@@ -1886,6 +1886,7 @@ _CHURN_FORECAST_SQL = text("""
             (ARRAY_AGG(customer_email ORDER BY created_at DESC))[1] AS display_email,
             (ARRAY_AGG(customer_id ORDER BY created_at DESC) FILTER (WHERE customer_id IS NOT NULL AND customer_id <> ''))[1] AS shopify_customer_id,
             COUNT(*)               AS order_count,
+            -- data-truth-allowed: SUM(total_price) intentionally currency-agnostic for the churn cohort — the signal is order frequency (LAG + PERCENTILE_CONT median gap), not amount. Multi-currency customer buying in both USD+EUR is ONE identity; filtering by currency would corrupt the signal.
             SUM(total_price)       AS total_spent,
             MAX(created_at)        AS last_order_at
         FROM customer_orders

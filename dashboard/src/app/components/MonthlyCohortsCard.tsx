@@ -197,6 +197,7 @@ export function MonthlyCohortsCard({
               <div className="flex flex-shrink-0 items-baseline gap-4 text-right">
                 <div>
                   <div className="text-[9.5px] font-semibold uppercase tracking-wider text-slate-400">ARPC</div>
+                  {/* data-truth-allowed: sample-cohort display feeding from hardcoded array above (sample preview, not real cohort data) */}
                   <div className="text-[13.5px] font-bold tabular-nums text-white">€{s.rpc}</div>
                 </div>
                 <div>

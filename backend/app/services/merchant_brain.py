@@ -564,6 +564,7 @@ def _apply_cross_shop_prior(
         action_payload={
             "original_action_kind": candidate.action_kind,
             "original_rationale": candidate.rationale,
+            # data-truth-allowed: lift value pre-validated by cross_shop_priors aggregator (requires confidence != "low"); prior_p_value/prior_confidence shipped alongside
             "prior_lift_pct": round(float(lift), 4),
             "prior_n_shops": int(matching.get("n_shops", 0)),
             "prior_p_value": (

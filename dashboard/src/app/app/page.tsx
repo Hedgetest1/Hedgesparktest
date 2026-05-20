@@ -2961,7 +2961,8 @@ function PageInner() {
                         vs other €15k beauty brands"). Closes the
                         Varos-vertical moat gap. Reuses the existing
                         VerticalBenchmarksCard — only the Pro-gate was
-                        dropped and the endpoint opened. */}
+                        dropped and the endpoint opened.
+                        data-truth-allowed: JSX comment prose ("€15k" is competitor-positioning narrative, not rendered to merchants) */}
                     <div className="mt-5">
                       <VerticalBenchmarksCard apiBase={API_BASE} shop={shop} isProUser={false} />
                     </div>
@@ -3034,7 +3035,8 @@ function PageInner() {
                         country / channel breakdown of gross profit.
                         Closes the parity gap with TrueProfit / BeProfit
                         / Lifetimely / Profit Calc / OrderMetrics /
-                        Putler at €20-49 entry tiers. */}
+                        Putler at €20-49 entry tiers.
+                        data-truth-allowed: JSX comment prose (competitor-pricing narrative, not rendered to merchants) */}
                     <div className="mt-5">
                       <ProfitSliceTile displayCurrency={displayCurrency} />
                     </div>
@@ -3693,7 +3695,8 @@ function PageInner() {
                   same primitive at €239 with Sleep Confidence + visible
                   reasoning Journal as the differentiating moat. Pro
                   €99 wins on bundle-vs-TW-$129; Scale wins on Moby-vs-
-                  Scale here. Strict tier partition (no doppione). */}
+                  Scale here. Strict tier partition (no doppione).
+                  data-truth-allowed: JSX comment prose (HedgeSpark's own pricing narrative, not rendered to merchants) */}
               {isScaleFloor && isScaleUser && (
                 <section id="section-scale-night-shift">
                   <h2 className="mb-6 text-[2.25rem] font-extrabold leading-[1.05] tracking-tight text-[#e8a04e] sm:text-[2.75rem]">

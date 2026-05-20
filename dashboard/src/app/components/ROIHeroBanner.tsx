@@ -161,6 +161,7 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
             </div>
           </div>
 
+          {/* data-truth-allowed: "Sample" hero banner (sample preview block — opacity-50 + Sample badge above; never replaces with real merchant data, see line 160 'Sample' badge) */}
           <div className="opacity-50">
             <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
               Saved last 30 days
@@ -173,6 +174,7 @@ export function ROIHeroBanner({ apiBase, isProUser }: { apiBase: string; isProUs
             </div>
 
             <div className="mt-5 grid gap-2 sm:grid-cols-3">
+              {/* data-truth-allowed: hardcoded sample-hero values inside the Sample-badge block (lines 159-209); never receives real merchant data */}
               {[
                 { label: "Cart-recovery nudges", value: "€812", lift: "+4.2%" },
                 { label: "Price-band optimisation", value: "€634", lift: "+3.1%" },

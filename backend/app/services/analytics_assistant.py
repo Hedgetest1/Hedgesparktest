@@ -112,6 +112,7 @@ def _gather_context(db: Session, shop: str) -> tuple[str, list[str]]:
         sources.append("revenue_at_risk")
         total = rars.get("total_at_risk_eur") or 0
         prev = rars.get("prevented_eur_this_month") or 0
+        # data-truth-allowed: rars dict comes from get_revenue_at_risk which resolves shop currency; "USD" is cold-start fallback only
         ccy = rars.get("currency") or "USD"
         comps = [c for c in (rars.get("components") or []) if c.get("loss_eur", 0) > 0]
         comps.sort(key=lambda c: c["loss_eur"], reverse=True)

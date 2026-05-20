@@ -115,6 +115,7 @@ function PrivacySurface({ session }: { session: SessionState }) {
           </div>
           <ul className="list-inside list-disc space-y-1">
             <li>Nudge selection engine stops choosing messages for your store</li>
+            {/* data-truth-allowed: prose copy ("prevented-€ numbers" is product narrative for the only EUR-pricing tier we currently sell at) */}
             <li>Holdout-vs-treatment attribution pauses (no prevented-€ numbers)</li>
             <li>Automated action recommendations stop (no "Take action" CTAs)</li>
             <li>Baseline analytics (revenue, cohorts, peer benchmarks) continue</li>

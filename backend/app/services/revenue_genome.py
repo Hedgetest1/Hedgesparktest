@@ -271,6 +271,7 @@ def _cluster_customer(db: Session, shop: str, currency: str | None, *, now: date
         if orders_per_customer > 1 else 0
     )
     rpc = total_revenue / max(total_customers, 1)
+    # data-truth-allowed: function-parameter fallback; caller resolves currency via get_shop_currency
     ccy = currency or "USD"
 
     return {

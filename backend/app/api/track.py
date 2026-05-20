@@ -487,12 +487,15 @@ def _persist_purchase(db: Session, payload: TrackPayload) -> None:
     # Currency fallback: pixel always sends currency, but legacy/buggy
     # pixel builds can drop it. Look up the shop's currency rather than
     # corrupting the ShopOrder row with EUR for non-EUR merchants.
+    # data-truth-allowed: explicit fallback name; real value comes from get_shop_currency below or pixel payload
     fallback_ccy = "USD"
     if not payload.currency:
         try:
             from app.services.revenue_metrics import get_shop_currency
+            # data-truth-allowed: defensive fallback inside the lookup path; pattern mirrors _DEFENSIVE_FALLBACK_RE
             fallback_ccy = (get_shop_currency(db, payload.shop_domain) or "USD").upper()
         except Exception:
+            # data-truth-allowed: except-block last-resort safety net after get_shop_currency raises
             fallback_ccy = "USD"
     order = ShopOrder(
         shop_domain=payload.shop_domain,

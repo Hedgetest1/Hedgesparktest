@@ -112,6 +112,7 @@ def _compute_intelligence(orders: list[dict]) -> dict:
     # app/core/currency.py:17), strictly safer than "EUR" if every fetched
     # order somehow lacks a currency tag (only ever happens on synthetic
     # fixtures).
+    # data-truth-allowed: initial-fallback overridden on first order with non-null currency (loop below)
     currency = "USD"
 
     for o in orders:

@@ -216,6 +216,7 @@ def get_playbook_for_signal(
         "entries": [
             {
                 **entry,
+                # data-truth-allowed: peer-network aggregate; per-row holdout is by construction (avg_lift = SQL AVG((treatment_cvr − control_cvr) / control_cvr)). Per-row significance is upstream in autonomous_actions writes (nudge_measurement).
                 "avg_lift_pct": round(entry["avg_lift"] * 100, 1) if entry["avg_lift"] is not None else None,
                 "best_lift_pct": round(entry["best_lift"] * 100, 1) if entry["best_lift"] is not None else None,
             }

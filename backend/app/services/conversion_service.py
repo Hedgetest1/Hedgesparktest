@@ -141,6 +141,7 @@ def simulate_action_uplift(
     return {
         "recommended_action": best_action,
         "expected_probability_after_action": round(best_probability, 4),
+        # data-truth-allowed: "expected_uplift" is a PREDICTED value from a heuristic model; key name explicitly says "expected" not "measured"
         "expected_uplift": round(expected_uplift, 4),
         "all_action_uplifts": {
             key: round(value, 4) for key, value in uplifts.items()

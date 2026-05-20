@@ -203,6 +203,7 @@ def _resolve_currency_cohorts(db: Session, shop_domain: str) -> str:
     except Exception as exc:
         record_silent_return("behavioral_cohorts.resolve_currency")
         log.warning("behavioral_cohorts: currency lookup failed: %s", exc)
+        # data-truth-allowed: except-block last-resort fallback; failure surfaces via record_silent_return metric
         return "USD"
 
 
